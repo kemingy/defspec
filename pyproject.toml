@@ -1,0 +1,41 @@
+[project]
+name = "reapi"
+dynamic = ["version"]
+description = "Argument parsing with structured class."
+authors = [{ name = "Keming", email = "kemingy94@gmail.com" }]
+requires-python = ">=3.8"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+classifiers = [
+    "Intended Audience :: Developers",
+]
+dependencies = [
+    "msgspec~=0.18.5",
+    "typing_extensions~=4.9.0",
+]
+[project.optional-dependencies]
+dev = [
+    "ruff~=0.1.3",
+    "pytest~=7.4",
+    "attrs~=23.2",
+]
+[project.urls]
+"Homepage" = "https://github.com/kemingy/reapi"
+[project.scripts]
+
+[build-system]
+requires = ["setuptools", "setuptools_scm>=7.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
+
+[tool.ruff]
+target-version = "py38"
+[tool.ruff.lint]
+select = ["E", "F", "G", "B", "I", "SIM", "TID", "PL", "RUF"]
+ignore = ["E501"]
+[tool.ruff.lint.isort]
+known-first-party = ["reapi"]
+[tool.ruff.lint.pylint]
+max-args = 10
