@@ -3,7 +3,7 @@ from time import perf_counter
 
 from flask import Flask, request
 
-from reapi import OpenAPI, RenderTemplate
+from defspec import OpenAPI, RenderTemplate
 
 
 @dataclass

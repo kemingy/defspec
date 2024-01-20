@@ -5,7 +5,7 @@ import falcon
 import msgspec
 from falcon import App, Request, Response
 
-from reapi import OpenAPI, RenderTemplate
+from defspec import OpenAPI, RenderTemplate
 
 
 class JSONRequest(msgspec.Struct):
