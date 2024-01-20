@@ -1,5 +1,5 @@
 [project]
-name = "reapi"
+name = "defspec"
 dynamic = ["version"]
 description = "Argument parsing with structured class."
 authors = [{ name = "Keming", email = "kemingy94@gmail.com" }]
@@ -20,7 +20,7 @@ dev = [
     "attrs~=23.2",
 ]
 [project.urls]
-"Homepage" = "https://github.com/kemingy/reapi"
+"Homepage" = "https://github.com/kemingy/defspec"
 [project.scripts]
 
 [build-system]
@@ -36,6 +36,6 @@ target-version = "py38"
 select = ["E", "F", "G", "B", "I", "SIM", "TID", "PL", "RUF"]
 ignore = ["E501"]
 [tool.ruff.lint.isort]
-known-first-party = ["reapi"]
+known-first-party = ["defspec"]
 [tool.ruff.lint.pylint]
 max-args = 10

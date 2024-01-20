@@ -1,4 +1,4 @@
-PY_SOURCE=reapi tests examples
+PY_SOURCE=defspec tests examples
 
 dev:
 	@pip install -e .[dev]

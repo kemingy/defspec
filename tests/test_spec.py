@@ -6,7 +6,7 @@ import attrs
 import msgspec
 import pytest
 
-from reapi import OpenAPI, OpenAPIInfo
+from defspec import OpenAPI, OpenAPIInfo
 
 APIParameter = namedtuple(
     "APIParameters", ["request", "response", "query", "header", "cookie"]

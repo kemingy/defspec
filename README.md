@@ -1,4 +1,4 @@
-# reapi
+# defspec
 
 Create the OpenAPI spec and document from `dataclass`, `attrs`, `msgspec`, etc.
 
@@ -14,7 +14,7 @@ You can use this project as a low-level component or a drop-in module when you d
 ## Installation
 
 ```bash
-pip install reapi
+pip install defspec
 ```
 
 ## Examples
@@ -34,7 +34,7 @@ You can run the above examples and open the OpenAPI document in your browser:
 from dataclasses import dataclass
 from typing import List
 
-from reapi import OpenAPI
+from defspec import OpenAPI
 
 
 @dataclass
