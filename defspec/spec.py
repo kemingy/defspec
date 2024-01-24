@@ -7,6 +7,8 @@ from typing import Any, Literal, Optional, Type
 
 import msgspec
 
+from defspec.server import serve_openapi_http_daemon
+
 if sys.version_info >= (3, 11):
     from typing import Self
 else:
@@ -74,6 +76,20 @@ class OpenAPIComponent(msgspec.Struct, kw_only=True, omit_defaults=True):
 HTTP_METHODS = Literal[
     "get", "post", "put", "delete", "head", "options", "connect", "trace", "patch"
 ]
+
+
+__MSGSPEC_STRUCT_DOC__ = inspect.getdoc(msgspec.Struct)
+
+
+def get_def_doc(obj: Type) -> str:
+    """Get the docstring of a type."""
+    doc = inspect.getdoc(obj)
+    if doc is None:
+        return ""
+    # `inspect.getdoc` will traverse the __mro__ of a type, so we need to check
+    if doc == __MSGSPEC_STRUCT_DOC__:
+        return ""
+    return doc
 
 
 class OpenAPI(msgspec.Struct, kw_only=True):
@@ -145,7 +161,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
                     name=param_type.__name__,
                     located_in=param_location,
                     schema=schema,
-                    description=inspect.getdoc(param_type) or "",
+                    description=get_def_doc(param_type),
                 )
             )
 
@@ -156,3 +172,20 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     def to_dict(self) -> dict:
         """Convert to a dict."""
         return msgspec.to_builtins(self)
+
+    def serve_as_http_daemon(
+        self, host: str = "127.0.0.1", port: int = 8080, run_in_background: bool = False
+    ):
+        """Serve the OpenAPI specification and UI as a HTTP server.
+
+        - `/openapi/spec.json`: the OpenAPI specification
+        - `/openapi/swagger`: the Swagger UI
+        - `/openapi/redoc`: the ReDoc UI
+        - `/openapi/scalar`: the Scalar UI
+
+        Args:
+            host: host to serve
+            port: port to serve
+            run_in_background: whether to run in a daemon thread
+        """
+        serve_openapi_http_daemon(host, port, run_in_background, self.to_json())
