@@ -8,17 +8,17 @@ from falcon import App, Request, Response
 from defspec import OpenAPI, RenderTemplate
 
 
-class JSONRequest(msgspec.Struct):
+class JSONRequest(msgspec.Struct, frozen=True):
     title: str
     timeout: float
 
 
-class Query(msgspec.Struct):
+class Query(msgspec.Struct, frozen=True):
     limit: int
     offset: int
 
 
-class JSONResponse(msgspec.Struct):
+class JSONResponse(msgspec.Struct, frozen=True):
     elapsed: float
     queries: list[Query]
 

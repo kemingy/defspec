@@ -54,4 +54,7 @@ print(openapi.to_dict())
 # get the OpenAPI spec bytes
 with open("openapi.json", "wb") as f:
     f.write(openapi.to_json())
+
+# serve as a HTTP server
+openapi.serve_as_http_daemon(port=8000, run_in_background=True)
 ```
