@@ -1,4 +1,7 @@
-# defspec
+# DefSpec
+
+[![Python Check](https://github.com/kemingy/defspec/actions/workflows/check.yml/badge.svg)](https://github.com/kemingy/defspec/actions/workflows/check.yml)
+[![PyPI](https://img.shields.io/pypi/v/defspec.svg)](https://pypi.org/project/defspec/)
 
 Create the OpenAPI spec and document from `dataclass`, `attrs`, `msgspec`, etc.
 
