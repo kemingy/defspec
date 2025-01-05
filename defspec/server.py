@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from urllib.parse import urljoin
 
 from defspec.template import RenderTemplate
 
@@ -14,18 +15,19 @@ else:
 
 class OpenAPIHandler(BaseHTTPRequestHandler):
     spec: bytes
+    path: str = "/openapi/"
 
     @classmethod
-    def set_openapi_handler(cls, spec: bytes) -> Self:
+    def build(cls, spec: bytes, path: str = "/openapi") -> Self:
         cls.spec = spec
+        cls.path = path
         return cls
 
     def do_GET(self):
-        print(self.path)
-        if self.path == "/openapi/spec.json":
+        if self.path == urljoin(self.path, "spec.json"):
             return self.send_spec()
         for template in RenderTemplate:
-            if self.path == f"/openapi/{template.name.lower()}":
+            if self.path == urljoin(self.path, template.name.lower()):
                 return self.send_ui(template.value)
         self.send_response(404, "Not Found")
         self.end_headers()
@@ -37,7 +39,7 @@ class OpenAPIHandler(BaseHTTPRequestHandler):
         self.wfile.write(self.spec)
 
     def send_ui(self, template: str):
-        content = template.format(spec_url="/openapi/spec.json")
+        content = template.format(spec_url=urljoin(self.path, "spec.json"))
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -45,7 +47,7 @@ class OpenAPIHandler(BaseHTTPRequestHandler):
 
 
 def serve_openapi_http_daemon(host: str, port: int, daemon: bool, spec: bytes):
-    server = ThreadingHTTPServer((host, port), OpenAPIHandler.set_openapi_handler(spec))
+    server = ThreadingHTTPServer((host, port), OpenAPIHandler.build(spec))
     if daemon:
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()

@@ -15,12 +15,15 @@ You can use this project as a low-level component or a drop-in module when you d
 
 ```bash
 pip install defspec
+# to enable the offline feature
+pip install defspec[offline]
 ```
 
 ## Examples
 
 - `flask`: [examples/flask](examples/flask_openapi.py)
 - `falcon`: [examples/falcon](examples/falcon_openapi.py)
+- `offline`: [examples/offline](examples/offline_openapi.py)
 
 You can run the above examples and open the OpenAPI document in your browser:
 
