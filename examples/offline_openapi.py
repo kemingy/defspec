@@ -4,8 +4,9 @@ from wsgiref.simple_server import make_server
 import falcon
 import msgspec
 from falcon import App, Request, Response
+from offapi import OpenAPITemplate
 
-from defspec import OpenAPI, RenderTemplate
+from defspec import OpenAPI
 
 
 class JSONRequest(msgspec.Struct, frozen=True):
@@ -61,7 +62,7 @@ class OpenAPIResource:
 
 
 class OpenAPIRender:
-    def __init__(self, spec_url: str, template: RenderTemplate) -> None:
+    def __init__(self, spec_url: str, template: OpenAPITemplate) -> None:
         self.template = template.value.format(spec_url=spec_url)
 
     def on_get(self, req: Request, resp: Response):
@@ -75,13 +76,13 @@ if __name__ == "__main__":
     app.add_route("/fake", FakeResource())
     app.add_route("/openapi/spec.json", OpenAPIResource())
     app.add_route(
-        "/openapi/redoc", OpenAPIRender("/openapi/spec.json", RenderTemplate.REDOC)
+        "/openapi/redoc", OpenAPIRender("/openapi/spec.json", OpenAPITemplate.REDOC)
     )
     app.add_route(
-        "/openapi/swagger", OpenAPIRender("/openapi/spec.json", RenderTemplate.SWAGGER)
+        "/openapi/swagger", OpenAPIRender("/openapi/spec.json", OpenAPITemplate.SWAGGER)
     )
     app.add_route(
-        "/openapi/scalar", OpenAPIRender("/openapi/spec.json", RenderTemplate.SCALAR)
+        "/openapi/scalar", OpenAPIRender("/openapi/spec.json", OpenAPITemplate.SCALAR)
     )
 
     with make_server("", 8000, app) as server:
