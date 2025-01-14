@@ -11,7 +11,7 @@ format:
 	@ruff format ${PY_SOURCE}
 
 clean:
-	@-rm -rf dist build */__pycache__ *.egg-info argstruct/__version__.py
+	@-rm -rf dist build */__pycache__ *.egg-info
 
 build:
 	@python -m build
