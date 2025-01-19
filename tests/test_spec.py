@@ -178,6 +178,14 @@ def openapi_spec(request):
         cookie_type=parameter.cookie,
     )
     openapi.register_route(
+        path="/test/msgpack",
+        method="post",
+        request_content_type="application/msgpack",
+        response_content_type="application/msgpack",
+        request_type=parameter.request,
+        response_type=parameter.response,
+    )
+    openapi.register_route(
         path="/",
         method="get",
         summary="health check",
@@ -187,7 +195,7 @@ def openapi_spec(request):
 
 def test_openapi_spec(openapi_spec):
     spec = openapi_spec.to_dict()
-    assert list(spec["paths"].keys()) == ["/test", "/"]
+    assert list(spec["paths"].keys()) == ["/test", "/test/msgpack", "/"]
     assert list(spec["paths"]["/test"].keys()) == ["post"]
     assert list(spec["paths"]["/"].keys()) == ["get"]
 
@@ -214,3 +222,9 @@ def test_openapi_spec(openapi_spec):
     assert header["schema"]["$ref"].startswith("#/$defs/Header")
     assert header["description"] == "Set your API key here."
     assert cookie["schema"]["$ref"].startswith("#/$defs/Cookie")
+
+    msgpack = spec["paths"]["/test/msgpack"]["post"]
+    request = msgpack["requestBody"]["content"]["application/msgpack"]["schema"]
+    assert request["$ref"].startswith("#/$defs/RequestBody")
+    response = msgpack["responses"]["200"]["content"]["application/msgpack"]["schema"]
+    assert response["$ref"].startswith("#/$defs/Response")

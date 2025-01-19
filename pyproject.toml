@@ -44,4 +44,4 @@ ignore = ["E501"]
 [tool.ruff.lint.isort]
 known-first-party = ["defspec"]
 [tool.ruff.lint.pylint]
-max-args = 10
+max-args = 12
