@@ -55,3 +55,12 @@ dev = [
     "pytest>=7.4.4",
     "ruff>=0.8.6",
 ]
+doc = [
+    "furo>=2024.8.6",
+    "myst-parser>=3.0.1",
+    "sphinx>=7.4.7",
+    "sphinx-autodoc-typehints>=2.3.0",
+    "sphinx-sitemap>=2.6.0",
+    "sphinxcontrib-napoleon>=0.7",
+    "sphinxext-opengraph>=0.10.0",
+]
