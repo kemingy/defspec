@@ -18,7 +18,7 @@ class OpenAPIHandler(BaseHTTPRequestHandler):
     path: str = "/openapi/"
 
     @classmethod
-    def build(cls, spec: bytes, path: str = "/openapi") -> Self:
+    def build(cls, spec: bytes, path: str = "/openapi") -> type[Self]:
         cls.spec = spec
         cls.path = path
         return cls

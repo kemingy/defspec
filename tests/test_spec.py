@@ -9,7 +9,7 @@ import pytest
 from defspec import OpenAPI, OpenAPIInfo
 
 APIParameter = namedtuple(
-    "APIParameters", ["request", "response", "query", "header", "cookie"]
+    "APIParameter", ["request", "response", "query", "header", "cookie"]
 )
 
 # => dataclass
@@ -49,6 +49,12 @@ class ResponseClass:
     queries: list[QueryClass]
 
 
+@dataclass
+class CustomClass:
+    text: str
+    num: complex
+
+
 # => msgspec
 
 
@@ -79,6 +85,11 @@ class RequestBodyStruct(msgspec.Struct):
 class ResponseStruct(msgspec.Struct):
     elapsed: float
     queries: list[QueryStruct]
+
+
+class CustomStruct(msgspec.Struct):
+    text: str
+    num: complex
 
 
 # => attrs
@@ -116,6 +127,48 @@ class RequestBodyAttrs:
 class ResponseAttrs:
     elapsed: float
     queries: list[QueryAttrs]
+
+
+@attrs.define
+class CustomAttrs:
+    text: str
+    num: complex
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [
+        pytest.param(CustomClass, id="dataclass"),
+        pytest.param(CustomStruct, id="msgspec"),
+        pytest.param(CustomAttrs, id="attrs"),
+    ],
+)
+def test_custom_schema(cls):
+    def schema_hook(cls):
+        if cls is complex:
+            return {"type": "string", "format": "complex"}
+        raise NotImplementedError()
+
+    name = cls.__name__
+    openapi = OpenAPI()
+    openapi.register_route(
+        path="/",
+        method="post",
+        request_type=cls,
+        response_type=cls,
+        query_type=cls,
+        schema_hook=schema_hook,
+    )
+    spec = openapi.to_dict()
+    assert spec["$defs"][name] == {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "num": {"type": "string", "format": "complex"},
+        },
+        "title": name,
+        "required": ["text", "num"],
+    }
 
 
 def test_openapi_info():
