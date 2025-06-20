@@ -3,7 +3,8 @@ from __future__ import annotations
 import inspect
 import sys
 from collections import defaultdict
-from typing import Any, Literal, Optional, Type
+from collections.abc import Callable
+from typing import Any, Literal, Optional, Type, cast
 
 import msgspec
 
@@ -127,6 +128,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         header_type: Optional[Type] = None,
         cookie_type: Optional[Type] = None,
         deprecated: bool = False,
+        schema_hook: Optional[Callable[[type], dict[str, Any]]] = None,
     ):
         """Register a route to OpenAPI specification.
 
@@ -135,14 +137,18 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             method: HTTP method of the route
             summary: summary of the route
             request_type: type of the request body
+            request_content_type: `Content-Type` of the request body
             response_type: type of the response body
+            response_content_type: `Content-Type` of the response body
             query_type: type of the query parameters
             header_type: type of the header parameters
             cookie_type: type of the cookie parameters
             deprecated: whether the route is deprecated
+            schema_hook: a callable that takes a type and returns a dict for
+                custom schema generation
         """
-        request_schema = msgspec.json.schema(request_type)
-        response_schema = msgspec.json.schema(response_type)
+        request_schema = msgspec.json.schema(request_type, schema_hook=schema_hook)
+        response_schema = msgspec.json.schema(response_type, schema_hook=schema_hook)
 
         self.defs.update(request_schema.pop("$defs", {}))
         self.defs.update(response_schema.pop("$defs", {}))
@@ -168,12 +174,14 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         ]:
             if param_type is None:
                 continue
-            schema = msgspec.json.schema(param_type)
+            schema = msgspec.json.schema(param_type, schema_hook=schema_hook)
             self.defs.update(schema.pop("$defs", {}))
             self.paths[path][method].parameters.append(
                 OpenAPIParam(
                     name=param_type.__name__,
-                    located_in=param_location,
+                    located_in=cast(
+                        Literal["query", "header", "cookie"], param_location
+                    ),
                     schema=schema,
                     description=get_def_doc(param_type),
                 )

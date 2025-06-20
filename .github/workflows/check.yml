@@ -16,16 +16,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: "3.11"
-    - name: Install dependencies
-      run: |
-        make dev
+        enable-cache: true
+        ignore-nothing-to-cache: true
     - name: Lint
-      run: |
-        make lint
+      run: make lint
     - name: Test
-      run: |
-        make test
+      env:
+        PYTEST_ADDOPTS: -s
+      run: make test

@@ -15,26 +15,28 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "msgspec~=0.19.0",
-    "typing_extensions~=4.9; python_version < '3.11'",
+    "msgspec>=0.19.0",
+    "typing-extensions~=4.9 ; python_full_version < '3.11'",
 ]
 [project.optional-dependencies]
-dev = [
-    "ruff~=0.8.0",
-    "pytest~=7.4",
-    "attrs~=23.2",
+offline = [
+    "offapi>=0.1.0",
 ]
-offline = ["offapi~=0.1.0"]
 [project.urls]
 "Homepage" = "https://github.com/kemingy/defspec"
 [project.scripts]
 
 [build-system]
-requires = ["setuptools", "setuptools_scm>=7.0"]
-build-backend = "setuptools.build_meta"
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
 
-[tool.setuptools_scm]
+[tool.pdm]
+distribution = true
+[tool.pdm.version]
+source = "scm"
 fallback_version = "0.0.0"
+write_to = "defspec/__version__.py"
+write_template = "__version__ = '{}'"
 
 [tool.ruff]
 target-version = "py39"
@@ -45,3 +47,11 @@ ignore = ["E501"]
 known-first-party = ["defspec"]
 [tool.ruff.lint.pylint]
 max-args = 12
+
+[dependency-groups]
+dev = [
+    "attrs>=23.2.0",
+    "mypy>=1.16.1",
+    "pytest>=7.4.4",
+    "ruff>=0.8.6",
+]
