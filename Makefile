@@ -1,4 +1,4 @@
-PY_SOURCE=defspec tests examples
+PY_SOURCE=defspec tests examples docs
 
 sync:
 	@uv sync --all-extras --all-groups
@@ -22,5 +22,9 @@ publish: build
 
 test:
 	@uv run pytest -v tests
+
+doc:
+	@cd docs && make html && cd ..
+	@uv run -m http.server -d docs/build/html -b 127.0.0.1 8531
 
 .PHONY: lint format clean build publish test
