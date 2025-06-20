@@ -135,29 +135,38 @@ class CustomAttrs:
     num: complex
 
 
-def test_custom_schema():
+@pytest.mark.parametrize(
+    "cls",
+    [
+        pytest.param(CustomClass, id="dataclass"),
+        pytest.param(CustomStruct, id="msgspec"),
+        pytest.param(CustomAttrs, id="attrs"),
+    ],
+)
+def test_custom_schema(cls):
     def schema_hook(cls):
         if cls is complex:
             return {"type": "string", "format": "complex"}
         raise NotImplementedError()
 
+    name = cls.__name__
     openapi = OpenAPI()
     openapi.register_route(
         path="/",
         method="post",
-        request_type=CustomClass,
-        response_type=CustomClass,
-        query_type=CustomClass,
+        request_type=cls,
+        response_type=cls,
+        query_type=cls,
         schema_hook=schema_hook,
     )
     spec = openapi.to_dict()
-    assert spec["$defs"]["CustomClass"] == {
+    assert spec["$defs"][name] == {
         "type": "object",
         "properties": {
             "text": {"type": "string"},
             "num": {"type": "string", "format": "complex"},
         },
-        "title": "CustomClass",
+        "title": name,
         "required": ["text", "num"],
     }
 
