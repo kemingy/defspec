@@ -6,6 +6,7 @@ sync:
 lint:
 	@uv run ruff check ${PY_SOURCE}
 	@uv run mypy --non-interactive --install-types defspec tests
+	@uv run ty check
 
 format:
 	@uv run ruff check --fix ${PY_SOURCE}
