@@ -38,9 +38,7 @@ napoleon_include_init_with_doc = True
 napoleon_use_admonition_for_references = True
 # opengraph
 ogp_site_url = "https://github.com/kemingy/defspec"
-ogp_image = (
-    "https://avatars.githubusercontent.com/u/50938222?s=200&v=4"
-)
+ogp_image = "https://avatars.githubusercontent.com/u/50938222?s=200&v=4"
 # sitemap
 html_baseurl = "https://kemingy.github.io/defspec"
 html_extra_path = ["robots.txt"]
@@ -65,9 +63,7 @@ intersphinx_mapping = {
 
 html_theme = "furo"
 html_static_path = ["_static"]
-html_logo = (
-    "https://avatars.githubusercontent.com/u/50938222?s=200&v=4"
-)
+html_logo = "https://avatars.githubusercontent.com/u/50938222?s=200&v=4"
 html_theme_options = {
     "sidebar_hide_name": True,
     "navigation_with_keys": True,

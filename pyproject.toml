@@ -20,7 +20,7 @@ dependencies = [
 ]
 [project.optional-dependencies]
 offline = [
-    "offapi>=0.1.0",
+    "offapi>=0.1.1",
 ]
 [project.urls]
 "Homepage" = "https://github.com/kemingy/defspec"
@@ -53,7 +53,8 @@ dev = [
     "attrs>=23.2.0",
     "mypy>=1.16.1",
     "pytest>=7.4.4",
-    "ruff>=0.8.6",
+    "ruff>=0.11.11",
+    "ty>=0.0.1a19",
 ]
 doc = [
     "furo>=2024.8.6",
@@ -64,3 +65,8 @@ doc = [
     "sphinxcontrib-napoleon>=0.7",
     "sphinxext-opengraph>=0.10.0",
 ]
+
+[tool.ty.src]
+include = ["defspec", "tests"]
+[tool.ty.rules]
+unresolved-attribute = "ignore"  # https://github.com/astral-sh/ty/issues/133
