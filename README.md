@@ -40,7 +40,7 @@ You can run the above examples and open the OpenAPI document in your browser:
 from dataclasses import dataclass
 from typing import List
 
-from defspec import OpenAPI
+from defspec import OpenAPI, OpenAPIComponent
 
 
 @dataclass
@@ -49,7 +49,17 @@ class User:
     age: int
 
 
-openapi = OpenAPI()
+openapi = OpenAPI(
+    components=OpenAPIComponent(
+        security_schemes={
+            "apiKey": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
+        }
+    )
+)
 openapi.register_route("/", method="get", summary="Hello World")
 openapi.register_route(
     "/users", method="post", summary="Get all the user info", response_type=List[User]
