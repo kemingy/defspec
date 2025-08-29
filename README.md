@@ -40,7 +40,7 @@ You can run the above examples and open the OpenAPI document in your browser:
 from dataclasses import dataclass
 from typing import List
 
-from defspec import OpenAPI, OpenAPIComponent, SecuritySchemeAPIKey
+from defspec import OpenAPI, OpenAPIComponent, SecuritySchemeHTTP
 
 
 @dataclass
@@ -51,9 +51,9 @@ class User:
 
 openapi = OpenAPI(
     components=OpenAPIComponent(
-        security_schemes={"APIKey": SecuritySchemeAPIKey(name="X-Auth-Token")}
+        security_schemes={"token": SecuritySchemeHTTP(scheme="bearer")}
     ),
-    security=[{"APIKey": []}],
+    security=[{"token": []}],
 )
 openapi.register_route("/", method="get", summary="Hello World")
 openapi.register_route(

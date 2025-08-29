@@ -5,7 +5,7 @@ import falcon
 import msgspec
 from falcon import App, Request, Response
 
-from defspec import OpenAPI, OpenAPIComponent, RenderTemplate, SecuritySchemeAPIKey
+from defspec import OpenAPI, OpenAPIComponent, RenderTemplate, SecuritySchemeHTTP
 
 
 class JSONRequest(msgspec.Struct, frozen=True):
@@ -45,9 +45,9 @@ class OpenAPIResource:
     def __init__(self) -> None:
         self.openapi = OpenAPI(
             components=OpenAPIComponent(
-                security_schemes={"APIKey": SecuritySchemeAPIKey(name="X-Auth-Token")}
+                security_schemes={"token": SecuritySchemeHTTP(scheme="bearer")}
             ),
-            security=[{"APIKey": []}],
+            security=[{"token": []}],
         )
         self.openapi.register_route("/", "get", summary="health check")
         self.openapi.register_route(

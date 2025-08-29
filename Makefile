@@ -2,6 +2,7 @@ PY_SOURCE=defspec tests examples docs
 
 sync:
 	@uv sync --all-extras --all-groups
+	@uv run -- prek install
 
 lint:
 	@uv run -- ruff check ${PY_SOURCE}

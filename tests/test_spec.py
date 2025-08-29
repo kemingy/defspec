@@ -6,7 +6,7 @@ import attrs
 import msgspec
 import pytest
 
-from defspec import OpenAPI, OpenAPIComponent, OpenAPIInfo, SecuritySchemeAPIKey
+from defspec import OpenAPI, OpenAPIComponent, OpenAPIInfo, SecuritySchemeHTTP
 
 APIParameter = namedtuple(
     "APIParameter", ["request", "response", "query", "header", "cookie"]
@@ -220,9 +220,9 @@ def test_openapi_info():
 def openapi_spec(request):
     openapi = OpenAPI(
         components=OpenAPIComponent(
-            security_schemes={"APIKey": SecuritySchemeAPIKey(name="X-Auth-Token")}
+            security_schemes={"token": SecuritySchemeHTTP(scheme="bearer")}
         ),
-        security=[{"APIKey": []}],
+        security=[{"token": []}],
     )
     parameter = request.param
     openapi.register_route(
@@ -259,11 +259,10 @@ def test_openapi_spec(openapi_spec):
     assert spec == gen.to_dict()
 
     components = spec["components"]
-    assert list(components["securitySchemes"]) == ["APIKey"]
-    assert components["securitySchemes"]["APIKey"]["type"] == "apiKey"
-    assert components["securitySchemes"]["APIKey"]["name"] == "X-Auth-Token"
+    assert list(components["securitySchemes"]) == ["token"]
+    assert components["securitySchemes"]["token"]["scheme"] == "bearer"
 
-    assert spec["security"][0] == {"APIKey": []}
+    assert spec["security"][0] == {"token": []}
 
     assert list(spec["paths"].keys()) == ["/test", "/test/msgpack", "/"]
     assert list(spec["paths"]["/test"].keys()) == ["post"]
