@@ -123,9 +123,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         default_factory=lambda: defaultdict(dict)
     )
     defs: dict[str, dict] = msgspec.field(name="$defs", default_factory=dict)
-    components: OpenAPIComponent = msgspec.field(
-        default_factory=OpenAPIComponent
-    )
+    components: OpenAPIComponent = msgspec.field(default_factory=OpenAPIComponent)
 
     def register_route(
         self,
@@ -159,10 +157,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             schema_hook: a callable that takes a type and returns a dict for
                 custom schema generation
         """
-        request_schema = msgspec.json.schema(request_type,
-                                             schema_hook=schema_hook)
-        response_schema = msgspec.json.schema(response_type,
-                                              schema_hook=schema_hook)
+        request_schema = msgspec.json.schema(request_type, schema_hook=schema_hook)
+        response_schema = msgspec.json.schema(response_type, schema_hook=schema_hook)
 
         self.defs.update(request_schema.pop("$defs", {}))
         self.defs.update(response_schema.pop("$defs", {}))
@@ -210,8 +206,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         return msgspec.to_builtins(self)
 
     def serve_as_http_daemon(
-        self, host: str = "127.0.0.1", port: int = 8080,
-        run_in_background: bool = False
+        self, host: str = "127.0.0.1", port: int = 8080, run_in_background: bool = False
     ):
         """Serve the OpenAPI specification and UI as a HTTP server.
 
