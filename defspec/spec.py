@@ -15,7 +15,6 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import Self
 
-
 DEFAULT_CONTENT_TYPE = "application/json"
 
 
@@ -74,7 +73,7 @@ class OpenAPIRoute(msgspec.Struct, kw_only=True, omit_defaults=True):
 
 
 class OpenAPIComponent(msgspec.Struct, kw_only=True, omit_defaults=True):
-    schemas: dict[str, dict]
+    schemas: dict[str, dict] = msgspec.field(default_factory=dict)
     security_schemes: dict[str, dict] = msgspec.field(
         name="securitySchemes", default_factory=dict
     )
@@ -83,7 +82,6 @@ class OpenAPIComponent(msgspec.Struct, kw_only=True, omit_defaults=True):
 HTTP_METHODS = Literal[
     "get", "post", "put", "delete", "head", "options", "connect", "trace", "patch"
 ]
-
 
 __MSGSPEC_STRUCT_DOC__ = inspect.getdoc(msgspec.Struct)
 
@@ -103,9 +101,20 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     """OpenAPI specification.
 
     Usage:
-        openapi = OpenAPI()
-        # init with customized info
-        openapi = OpenAPI(info=OpenAPIInfo(title="My API", version="1.2.3"))
+        >>> openapi = OpenAPI()
+        >>> # init with customized info
+        >>> openapi = OpenAPI(
+        >>>     info=OpenAPIInfo(title="My API", version="1.2.3"),
+        >>>     components=OpenAPIComponent(
+        >>>         security_schemes={
+        >>>             "X-Auth-Token": {
+        >>>                 "type": "apiKey",
+        >>>                 "in": "header",
+        >>>                 "name": "X-Auth-Token",
+        >>>             }
+        >>>         }
+        >>>     ),
+        >>> )
     """
 
     openapi: str = "3.1.0"
@@ -114,6 +123,9 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         default_factory=lambda: defaultdict(dict)
     )
     defs: dict[str, dict] = msgspec.field(name="$defs", default_factory=dict)
+    components: OpenAPIComponent = msgspec.field(
+        default_factory=OpenAPIComponent
+    )
 
     def register_route(
         self,
@@ -147,8 +159,10 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             schema_hook: a callable that takes a type and returns a dict for
                 custom schema generation
         """
-        request_schema = msgspec.json.schema(request_type, schema_hook=schema_hook)
-        response_schema = msgspec.json.schema(response_type, schema_hook=schema_hook)
+        request_schema = msgspec.json.schema(request_type,
+                                             schema_hook=schema_hook)
+        response_schema = msgspec.json.schema(response_type,
+                                              schema_hook=schema_hook)
 
         self.defs.update(request_schema.pop("$defs", {}))
         self.defs.update(response_schema.pop("$defs", {}))
@@ -196,7 +210,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         return msgspec.to_builtins(self)
 
     def serve_as_http_daemon(
-        self, host: str = "127.0.0.1", port: int = 8080, run_in_background: bool = False
+        self, host: str = "127.0.0.1", port: int = 8080,
+        run_in_background: bool = False
     ):
         """Serve the OpenAPI specification and UI as a HTTP server.
 
