@@ -3,7 +3,7 @@ from time import perf_counter
 
 from flask import Flask, request
 
-from defspec import OpenAPI, RenderTemplate
+from defspec import OpenAPI, OpenAPIComponent, RenderTemplate, SecuritySchemeHTTP
 
 
 @dataclass
@@ -44,7 +44,12 @@ def health_check():
 
 @app.route("/openapi/spec.json", methods=["GET"])
 def spec():
-    openapi = OpenAPI()
+    openapi = OpenAPI(
+        components=OpenAPIComponent(
+            security_schemes={"token": SecuritySchemeHTTP(scheme="bearer")}
+        ),
+        security=[{"token": []}],
+    )
     openapi.register_route("/", "get", summary="health check")
     openapi.register_route(
         "/fake",
