@@ -1,12 +1,13 @@
 import json
 from collections import namedtuple
 from dataclasses import dataclass
+from unittest import TestCase
 
 import attrs
 import msgspec
 import pytest
 
-from defspec import OpenAPI, OpenAPIComponent, OpenAPIInfo
+from defspec import OpenAPI, OpenAPIComponent, OpenAPIInfo, SecuritySchemeAPIKey
 
 APIParameter = namedtuple(
     "APIParameter", ["request", "response", "query", "header", "cookie"]
@@ -220,14 +221,9 @@ def test_openapi_info():
 def openapi_spec(request):
     openapi = OpenAPI(
         components=OpenAPIComponent(
-            security_schemes={
-                "X-Auth-Token": {
-                    "type": "apiKey",
-                    "in": "header",
-                    "name": "X-Auth-Token",
-                }
-            }
+            security_schemes={"X-Auth-Token": SecuritySchemeAPIKey(name="X-Auth-Token")}
         ),
+        security=[{"X-Auth-Token": []}],
     )
     parameter = request.param
     openapi.register_route(
@@ -259,10 +255,16 @@ def openapi_spec(request):
 def test_openapi_spec(openapi_spec):
     spec = openapi_spec.to_dict()
 
+    # make sure the spec is valid
+    gen = msgspec.json.decode(msgspec.json.encode(spec), type=OpenAPI)
+    TestCase().assertDictEqual(spec, gen.to_dict())
+
     components = spec["components"]
     assert list(components["securitySchemes"]) == ["X-Auth-Token"]
     assert components["securitySchemes"]["X-Auth-Token"]["type"] == "apiKey"
     assert components["securitySchemes"]["X-Auth-Token"]["name"] == "X-Auth-Token"
+
+    assert spec["security"][0] == {"X-Auth-Token": []}
 
     assert list(spec["paths"].keys()) == ["/test", "/test/msgpack", "/"]
     assert list(spec["paths"]["/test"].keys()) == ["post"]

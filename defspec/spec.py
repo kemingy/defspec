@@ -4,7 +4,7 @@ import inspect
 import sys
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any, Literal, Optional, Type, cast
+from typing import Any, Literal, Optional, Type, Union, cast
 
 import msgspec
 
@@ -72,11 +72,94 @@ class OpenAPIRoute(msgspec.Struct, kw_only=True, omit_defaults=True):
     deprecated: bool = False
 
 
+class SecuritySchemeHTTP(msgspec.Struct, tag_field="type", tag="http"):
+    scheme: Literal["basic", "bearer"]
+
+
+class SecuritySchemeAPIKey(msgspec.Struct, tag_field="type", tag="apiKey"):
+    name: str
+    located_in: Literal["query", "header", "cookie"] = msgspec.field(
+        default="header", name="in"
+    )
+
+
+class SecuritySchemeOpenID(msgspec.Struct, tag_field="type", tag="openIdConnect"):
+    open_id_connect_url: str = msgspec.field(name="openIdConnectUrl")
+
+
+class OAuthFlowAuthorizationCode(msgspec.Struct):
+    authorization_url: str = msgspec.field(name="authorizationUrl")
+    token_url: str = msgspec.field(name="tokenUrl")
+    refresh_url: Optional[str] = msgspec.field(name="refreshUrl", default=None)
+    scopes: dict[str, str] = msgspec.field(default_factory=dict)
+
+
+class ImplicitOAuthFlow(msgspec.Struct):
+    authorization_url: str = msgspec.field(name="authorizationUrl")
+    refresh_url: Optional[str] = msgspec.field(name="refreshUrl", default=None)
+    scopes: dict[str, str] = msgspec.field(default_factory=dict)
+
+
+class PasswordOAuthFlow(msgspec.Struct):
+    token_url: str = msgspec.field(name="tokenUrl")
+    refresh_url: Optional[str] = msgspec.field(name="refreshUrl", default=None)
+    scopes: dict[str, str] = msgspec.field(default_factory=dict)
+
+
+class ClientCredentialsOAuthFlow(PasswordOAuthFlow):
+    pass
+
+
+class OAuthFlow(
+    msgspec.Struct,
+):
+    """OAuth flow type.
+
+    One or more named flows are supported.
+
+    Previous name in OpenAPI 2.0:
+    - `authorizationCode`: `accessCode`
+    - `implicit`: `implicit`
+    - `password`: `password`
+    - `clientCredentials`: `application`
+    """
+
+    authorization_code: Optional[OAuthFlowAuthorizationCode] = msgspec.field(
+        name="authorizationCode", default=None
+    )
+    implicit: Optional[ImplicitOAuthFlow] = None
+    password: Optional[PasswordOAuthFlow] = None
+    client_credentials: Optional[ClientCredentialsOAuthFlow] = msgspec.field(
+        name="clientCredentials", default=None
+    )
+
+    def __post_init__(self):
+        if not any(
+            (
+                self.authorization_code,
+                self.implicit,
+                self.password,
+                self.client_credentials,
+            )
+        ):
+            raise ValueError("At least one OAuth flow must be provided.")
+
+
+class SecuritySchemeOAuth2(msgspec.Struct, tag_field="type", tag="oauth2"):
+    flows: OAuthFlow
+
+
 class OpenAPIComponent(msgspec.Struct, kw_only=True, omit_defaults=True):
     schemas: dict[str, dict] = msgspec.field(default_factory=dict)
-    security_schemes: dict[str, dict] = msgspec.field(
-        name="securitySchemes", default_factory=dict
-    )
+    security_schemes: dict[
+        str,
+        Union[
+            SecuritySchemeHTTP,
+            SecuritySchemeAPIKey,
+            SecuritySchemeOAuth2,
+            SecuritySchemeOpenID,
+        ],
+    ] = msgspec.field(name="securitySchemes", default_factory=dict)
 
 
 HTTP_METHODS = Literal[
@@ -107,11 +190,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         >>>     info=OpenAPIInfo(title="My API", version="1.2.3"),
         >>>     components=OpenAPIComponent(
         >>>         security_schemes={
-        >>>             "X-Auth-Token": {
-        >>>                 "type": "apiKey",
-        >>>                 "in": "header",
-        >>>                 "name": "X-Auth-Token",
-        >>>             }
+        >>>             "X-Auth-Token": SecuritySchemeAPIKey(name="X-Auth-Token")
         >>>         }
         >>>     ),
         >>> )
@@ -124,6 +203,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     )
     defs: dict[str, dict] = msgspec.field(name="$defs", default_factory=dict)
     components: OpenAPIComponent = msgspec.field(default_factory=OpenAPIComponent)
+    security: list[dict[str, list[str]]] = msgspec.field(default_factory=list)
 
     def register_route(
         self,
