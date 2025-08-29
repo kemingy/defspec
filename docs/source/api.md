@@ -2,5 +2,17 @@
 
 ```{eval-rst}
 .. automodule:: defspec.spec
-   :members: OpenAPI
+   :no-members:
+
+   .. autoclass:: OpenAPI
+   .. autoclass:: OpenAPIComponent
+   .. autoclass:: SecuritySchemeHTTP
+   .. autoclass:: SecuritySchemeAPIKey
+   .. autoclass:: SecuritySchemeOpenID
+   .. autoclass:: SecuritySchemeOAuth2
+   .. autoclass:: OAuthFlow
+   .. autoclass:: OAuthFlowAuthorizationCode
+   .. autoclass:: ImplicitOAuthFlow
+   .. autoclass:: PasswordOAuthFlow
+   .. autoclass:: ClientCredentialsOAuthFlow
 ```

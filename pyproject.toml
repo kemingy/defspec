@@ -65,6 +65,10 @@ doc = [
     "sphinxcontrib-napoleon>=0.7",
     "sphinxext-opengraph>=0.10.0",
 ]
+example = [
+    "falcon>=4.1.0",
+    "flask>=3.1.2",
+]
 
 [tool.ty.src]
 include = ["defspec", "tests"]

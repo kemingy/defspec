@@ -118,6 +118,7 @@ class OAuthFlow(
     One or more named flows are supported.
 
     Previous name in OpenAPI 2.0:
+
     - `authorizationCode`: `accessCode`
     - `implicit`: `implicit`
     - `password`: `password`
@@ -190,7 +191,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         >>>     info=OpenAPIInfo(title="My API", version="1.2.3"),
         >>>     components=OpenAPIComponent(
         >>>         security_schemes={
-        >>>             "X-Auth-Token": SecuritySchemeAPIKey(name="X-Auth-Token")
+        >>>             "APIKey": SecuritySchemeAPIKey(name="X-Auth-Token")
         >>>         }
         >>>     ),
         >>> )
