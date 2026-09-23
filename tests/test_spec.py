@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import attrs
 import msgspec
 import pytest
+from openapi_spec_validator import OpenAPIV31SpecValidator
 
 from defspec import OpenAPI, OpenAPIComponent, OpenAPIInfo, SecuritySchemeHTTP
 
@@ -160,7 +161,8 @@ def test_custom_schema(cls):
         schema_hook=schema_hook,
     )
     spec = openapi.to_dict()
-    assert spec["$defs"][name] == {
+    OpenAPIV31SpecValidator(spec).validate()
+    assert spec["components"]["schemas"][name] == {
         "type": "object",
         "properties": {
             "text": {"type": "string"},
@@ -254,7 +256,7 @@ def openapi_spec(request):
 def test_openapi_spec(openapi_spec):
     spec = openapi_spec.to_dict()
 
-    # make sure the spec is valid
+    OpenAPIV31SpecValidator(spec).validate()
     gen = msgspec.json.decode(msgspec.json.encode(spec), type=OpenAPI)
     assert spec == gen.to_dict()
 
@@ -275,25 +277,33 @@ def test_openapi_spec(openapi_spec):
     assert health_check["operationId"] == "get__"
     assert health_check["responses"] == {"200": {"description": "OK"}}
     assert "parameters" not in health_check
+    assert "requestBody" not in health_check
+    assert "$defs" not in spec
 
     test = spec["paths"]["/test"]["post"]
     assert test["summary"] == "basic test"
     assert test["operationId"] == "post__test"
 
     request = test["requestBody"]["content"]["application/json"]["schema"]
-    assert request["$ref"].startswith("#/$defs/RequestBody")
+    assert request["$ref"].startswith("#/components/schemas/RequestBody")
 
     response = test["responses"]["200"]["content"]["application/json"]["schema"]
-    assert response["$ref"].startswith("#/$defs/Response")
+    assert response["$ref"].startswith("#/components/schemas/Response")
 
-    query, header, cookie = test["parameters"]
-    assert query["schema"]["$ref"].startswith("#/$defs/Query")
-    assert header["schema"]["$ref"].startswith("#/$defs/Header")
-    assert header["description"] == "Set your API key here."
-    assert cookie["schema"]["$ref"].startswith("#/$defs/Cookie")
+    assert [(param["name"], param["in"]) for param in test["parameters"]] == [
+        ("limit", "query"),
+        ("offset", "query"),
+        ("query", "query"),
+        ("x_api_key", "header"),
+        ("session_id", "cookie"),
+        ("token", "cookie"),
+    ]
+    assert all(param["required"] for param in test["parameters"])
+    assert test["parameters"][0]["schema"] == {"type": "integer"}
+    assert test["parameters"][3]["schema"] == {"type": "string"}
 
     msgpack = spec["paths"]["/test/msgpack"]["post"]
     request = msgpack["requestBody"]["content"]["application/msgpack"]["schema"]
-    assert request["$ref"].startswith("#/$defs/RequestBody")
+    assert request["$ref"].startswith("#/components/schemas/RequestBody")
     response = msgpack["responses"]["200"]["content"]["application/msgpack"]["schema"]
-    assert response["$ref"].startswith("#/$defs/Response")
+    assert response["$ref"].startswith("#/components/schemas/Response")

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import inspect
+import re
 import sys
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any, Literal, Optional, Type, Union, cast
+from typing import Any, Literal, Optional, Union, get_args
 
 import msgspec
 
@@ -26,12 +27,12 @@ class OpenAPIInfo(msgspec.Struct, kw_only=True):
 
 class OpenAPIParam(msgspec.Struct, kw_only=True):
     name: str
-    located_in: Literal["query", "header", "cookie"] = msgspec.field(
+    located_in: Literal["query", "header", "cookie", "path"] = msgspec.field(
         default="query", name="in"
     )
     required: bool = True
     description: str = ""
-    schema: dict[str, str]
+    schema: Union[dict[str, Any], bool]
 
 
 class JSONSchema(msgspec.Struct, kw_only=True, omit_defaults=True):
@@ -39,12 +40,11 @@ class JSONSchema(msgspec.Struct, kw_only=True, omit_defaults=True):
 
     @classmethod
     def with_schema_content_type(
-        cls, schema: dict[str, dict], content_type: Optional[str] = None
+        cls, schema: dict[str, Any], content_type: Optional[str] = None
     ) -> Self:
         instance = cls()
         content_type = content_type or DEFAULT_CONTENT_TYPE
-        if schema.get("type", "") != "null":
-            instance.content[content_type] = {"schema": schema}
+        instance.content[content_type] = {"schema": schema}
         return instance
 
 
@@ -66,9 +66,11 @@ class OpenAPIRoute(msgspec.Struct, kw_only=True, omit_defaults=True):
     operation_id: str = msgspec.field(name="operationId")
     description: str = ""
     parameters: list[OpenAPIParam] = msgspec.field(default_factory=list)
-    request_body: OpenAPIRequestBody = msgspec.field(name="requestBody")
+    request_body: Union[OpenAPIRequestBody, msgspec.UnsetType] = msgspec.field(
+        name="requestBody", default=msgspec.UNSET
+    )
     responses: dict[str, OpenAPIResponse]
-    security: list[Any] = msgspec.field(default_factory=list)
+    security: Union[list[dict[str, list[str]]], msgspec.UnsetType] = msgspec.UNSET
     deprecated: bool = False
 
 
@@ -90,29 +92,45 @@ class SecuritySchemeOpenID(msgspec.Struct, tag_field="type", tag="openIdConnect"
 class OAuthFlowAuthorizationCode(msgspec.Struct):
     authorization_url: str = msgspec.field(name="authorizationUrl")
     token_url: str = msgspec.field(name="tokenUrl")
-    refresh_url: Optional[str] = msgspec.field(name="refreshUrl", default=None)
+    refresh_url: Union[str, None, msgspec.UnsetType] = msgspec.field(
+        name="refreshUrl", default=msgspec.UNSET
+    )
     scopes: dict[str, str] = msgspec.field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.refresh_url is None:
+            self.refresh_url = msgspec.UNSET
 
 
 class ImplicitOAuthFlow(msgspec.Struct):
     authorization_url: str = msgspec.field(name="authorizationUrl")
-    refresh_url: Optional[str] = msgspec.field(name="refreshUrl", default=None)
+    refresh_url: Union[str, None, msgspec.UnsetType] = msgspec.field(
+        name="refreshUrl", default=msgspec.UNSET
+    )
     scopes: dict[str, str] = msgspec.field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.refresh_url is None:
+            self.refresh_url = msgspec.UNSET
 
 
 class PasswordOAuthFlow(msgspec.Struct):
     token_url: str = msgspec.field(name="tokenUrl")
-    refresh_url: Optional[str] = msgspec.field(name="refreshUrl", default=None)
+    refresh_url: Union[str, None, msgspec.UnsetType] = msgspec.field(
+        name="refreshUrl", default=msgspec.UNSET
+    )
     scopes: dict[str, str] = msgspec.field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.refresh_url is None:
+            self.refresh_url = msgspec.UNSET
 
 
 class ClientCredentialsOAuthFlow(PasswordOAuthFlow):
     pass
 
 
-class OAuthFlow(
-    msgspec.Struct,
-):
+class OAuthFlow(msgspec.Struct, omit_defaults=True):
     """OAuth flow type.
 
     One or more named flows are supported.
@@ -164,13 +182,13 @@ class OpenAPIComponent(msgspec.Struct, kw_only=True, omit_defaults=True):
 
 
 HTTP_METHODS = Literal[
-    "get", "post", "put", "delete", "head", "options", "connect", "trace", "patch"
+    "get", "post", "put", "delete", "head", "options", "trace", "patch"
 ]
 
 __MSGSPEC_STRUCT_DOC__ = inspect.getdoc(msgspec.Struct)
 
 
-def get_def_doc(obj: Type) -> str:
+def get_def_doc(obj: Any) -> str:
     """Get the docstring of a type."""
     doc = inspect.getdoc(obj)
     if doc is None:
@@ -179,6 +197,70 @@ def get_def_doc(obj: Type) -> str:
     if doc == __MSGSPEC_STRUCT_DOC__:
         return ""
     return doc
+
+
+def _constrain_parameter_schema(
+    base: Union[dict[str, Any], bool],
+    constraint: Union[dict[str, Any], bool],
+) -> Union[dict[str, Any], bool]:
+    """Intersect schemas without overriding a constraint from either source."""
+    if base is False or constraint is False:
+        return False
+    if base is True:
+        return constraint
+    if constraint is True or base == constraint:
+        return base
+    schema: dict[str, Any] = {"allOf": [base, constraint]}
+    description = constraint.get("description", base.get("description"))
+    if description is not None:
+        schema["description"] = description
+    return schema
+
+
+def _parameter_model(schema: dict, components: dict[str, dict]) -> dict:
+    """Resolve a local model reference and preserve representable siblings."""
+    ref = schema.get("$ref", "")
+    prefix = "#/components/schemas/"
+    if not ref.startswith(prefix):
+        return schema
+    model = components.get(ref.removeprefix(prefix), {})
+    if model.get("type") != "object" or "properties" not in model:
+        return schema
+
+    supported = {
+        "$ref",
+        "type",
+        "properties",
+        "required",
+        "title",
+        "description",
+        "$comment",
+    }
+    unsupported = schema.keys() - supported
+    if "type" in schema and schema["type"] != "object":
+        unsupported.add("type")
+    if unsupported:
+        raise ValueError(
+            f"Cannot expand parameter model constraints: {', '.join(sorted(unsupported))}."
+        )
+    constraints = schema.get("properties", {})
+    extra_required = schema.get("required", [])
+    unknown = (constraints.keys() | set(extra_required)) - model["properties"].keys()
+    if unknown:
+        raise ValueError(
+            "Cannot expand parameter model constraints for undeclared fields: "
+            f"{', '.join(sorted(unknown))}."
+        )
+    # Work on copies: the referenced model may also describe a request body or
+    # be reused by another operation without these parameter constraints.
+    properties = model["properties"].copy()
+    for name, constraint in constraints.items():
+        properties[name] = _constrain_parameter_schema(properties[name], constraint)
+    return {
+        **model,
+        "properties": properties,
+        "required": list(dict.fromkeys([*model.get("required", []), *extra_required])),
+    }
 
 
 class OpenAPI(msgspec.Struct, kw_only=True):
@@ -202,81 +284,199 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     paths: dict[str, dict[str, OpenAPIRoute]] = msgspec.field(
         default_factory=lambda: defaultdict(dict)
     )
-    defs: dict[str, dict] = msgspec.field(name="$defs", default_factory=dict)
     components: OpenAPIComponent = msgspec.field(default_factory=OpenAPIComponent)
     security: list[dict[str, list[str]]] = msgspec.field(default_factory=list)
 
-    def register_route(
+    def __post_init__(self):
+        if not re.fullmatch(r"3\.1\.\d+", self.openapi):
+            raise ValueError("Only OpenAPI 3.1.x is supported.")
+
+    @property
+    def defs(self) -> dict[str, dict]:
+        """Compatibility alias for components.schemas; never serialized as $defs."""
+        return self.components.schemas
+
+    def _schema_for_type(
+        self,
+        type_: Any,
+        components: dict[str, dict],
+        schema_hook: Optional[Callable[[type], dict[str, Any]]],
+    ) -> dict:
+        schemas, definitions = msgspec.json.schema_components(
+            (type_,),
+            schema_hook=schema_hook,
+            ref_template="#/components/schemas/{name}",
+        )
+        for name, definition in definitions.items():
+            if name in components and components[name] != definition:
+                raise ValueError(
+                    f"Conflicting schema name {name!r}; use distinct model names."
+                )
+            components[name] = definition
+        return schemas[0]
+
+    def _parameters(
+        self,
+        type_: Any,
+        location: Literal["query", "header", "cookie", "path"],
+        components: dict[str, dict],
+        schema_hook: Optional[Callable[[type], dict[str, Any]]],
+    ) -> list[OpenAPIParam]:
+        schema = self._schema_for_type(type_, components, schema_hook)
+        model = _parameter_model(schema, components)
+        if model.get("type") == "object" and "properties" in model:
+            required = model.get("required", [])
+            return [
+                OpenAPIParam(
+                    name=name,
+                    located_in=location,
+                    required=location == "path" or name in required,
+                    schema=field,
+                    description=field.get("description", "")
+                    if isinstance(field, dict)
+                    else "",
+                )
+                for name, field in model["properties"].items()
+            ]
+        if location == "path":
+            raise ValueError("path_type must be an object model with named fields.")
+        return [
+            OpenAPIParam(
+                name=type_.__name__,
+                located_in=location,
+                schema=schema,
+                description=get_def_doc(type_),
+            )
+        ]
+
+    def _check_route(self, path: str, method: HTTP_METHODS, operation_id: str):
+        if method not in get_args(HTTP_METHODS):
+            raise ValueError(f"Unsupported OpenAPI 3.1 method: {method!r}")
+        if not path.startswith("/") or "?" in path or "#" in path:
+            raise ValueError(
+                "Paths must start with '/' and omit queries and fragments."
+            )
+        normalized = re.sub(r"\{[^{}]+\}", "{}", path)
+        literal_path = re.sub(r"\{[^{}]+\}", "", path)
+        if "{" in literal_path or "}" in literal_path:
+            raise ValueError(f"Malformed path template: {path!r}")
+        for existing_path, routes in self.paths.items():
+            if (
+                existing_path != path
+                and re.sub(r"\{[^{}]+\}", "{}", existing_path) == normalized
+            ):
+                raise ValueError(
+                    f"Equivalent path template already exists: {existing_path!r}"
+                )
+            for existing_method, route in routes.items():
+                if (existing_path, existing_method) != (
+                    path,
+                    method,
+                ) and route.operation_id == operation_id:
+                    raise ValueError(
+                        f"Duplicate operationId {operation_id!r}; provide a unique operation_id."
+                    )
+
+    def register_route(  # noqa: PLR0913
         self,
         path: str,
         method: HTTP_METHODS,
         summary: Optional[str] = None,
-        request_type: Optional[Type] = None,
+        request_type: Any = None,
         request_content_type: Optional[str] = None,
-        response_type: Optional[Type] = None,
+        response_type: Any = None,
         response_content_type: Optional[str] = None,
-        query_type: Optional[Type] = None,
-        header_type: Optional[Type] = None,
-        cookie_type: Optional[Type] = None,
+        query_type: Any = None,
+        header_type: Any = None,
+        cookie_type: Any = None,
         deprecated: bool = False,
         schema_hook: Optional[Callable[[type], dict[str, Any]]] = None,
+        *,
+        path_type: Any = None,
+        operation_id: Optional[str] = None,
+        security: Optional[list[dict[str, list[str]]]] = None,
     ):
-        """Register a route to OpenAPI specification.
+        """Register an OpenAPI 3.1 operation.
+
+        Object parameter models expand into one parameter per encoded field name.
+        Defaults determine optionality, except that path parameters are always required.
+        Sibling properties and required constraints on a model reference can further
+        constrain declared fields. Unsupported sibling constraints raise ValueError.
+        Invalid routes and conflicting schema names raise ValueError without changing
+        the document.
 
         Args:
-            path: path of the route
-            method: HTTP method of the route
-            summary: summary of the route
-            request_type: type of the request body
-            request_content_type: `Content-Type` of the request body
-            response_type: type of the response body
-            response_content_type: `Content-Type` of the response body
-            query_type: type of the query parameters
-            header_type: type of the header parameters
-            cookie_type: type of the cookie parameters
-            deprecated: whether the route is deprecated
-            schema_hook: a callable that takes a type and returns a dict for
-                custom schema generation
+            path: URL path; each {placeholder} must match a path_type field.
+            method: Lowercase OpenAPI HTTP method (CONNECT is unsupported).
+            summary: Summary of the operation.
+            request_type: Request body type; None omits requestBody.
+            request_content_type: Request media type, defaulting to application/json.
+            response_type: Response body type; None describes a response without content.
+            response_content_type: Response media type, defaulting to application/json.
+            query_type: Query parameter model or named scalar type.
+            header_type: Header parameter model or named scalar type.
+            cookie_type: Cookie parameter model or named scalar type.
+            deprecated: Whether the operation is deprecated.
+            schema_hook: Callback for custom JSON Schema generation.
+            path_type: Object model declaring all path parameters.
+            operation_id: Unique operation ID; defaults to method plus path with
+                slashes replaced by underscores. Collisions require an explicit ID.
+            security: None inherits global security; [] makes the operation public.
         """
-        request_schema = msgspec.json.schema(request_type, schema_hook=schema_hook)
-        response_schema = msgspec.json.schema(response_type, schema_hook=schema_hook)
-
-        self.defs.update(request_schema.pop("$defs", {}))
-        self.defs.update(response_schema.pop("$defs", {}))
-
-        self.paths[path][method] = OpenAPIRoute(
-            summary=summary or f"{method} from {path.replace('/', ' ')}",
-            operation_id=f"{method}_{path.replace('/', '_')}",
-            request_body=OpenAPIRequestBody.with_schema_content_type(
-                request_schema, request_content_type
-            ),
-            responses={
-                "200": OpenAPIResponse.with_schema_content_type(
-                    response_schema, response_content_type
-                )
-            },
-            deprecated=deprecated,
+        operation_id = (
+            operation_id
+            if operation_id is not None
+            else f"{method}_{path.replace('/', '_')}"
         )
-
-        for param_location, param_type in [
-            ("query", query_type),
-            ("header", header_type),
-            ("cookie", cookie_type),
-        ]:
-            if param_type is None:
-                continue
-            schema = msgspec.json.schema(param_type, schema_hook=schema_hook)
-            self.defs.update(schema.pop("$defs", {}))
-            self.paths[path][method].parameters.append(
-                OpenAPIParam(
-                    name=param_type.__name__,
-                    located_in=cast(
-                        Literal["query", "header", "cookie"], param_location
-                    ),
-                    schema=schema,
-                    description=get_def_doc(param_type),
-                )
+        self._check_route(path, method, operation_id)
+        # Stage all changes so a failure cannot overwrite an existing operation
+        # or leave unused schema definitions behind.
+        components = self.components.schemas.copy()
+        request_body: Union[OpenAPIRequestBody, msgspec.UnsetType] = msgspec.UNSET
+        if request_type is not None:
+            request_body = OpenAPIRequestBody.with_schema_content_type(
+                self._schema_for_type(request_type, components, schema_hook),
+                request_content_type,
             )
+        response = OpenAPIResponse()
+        if response_type is not None:
+            response = OpenAPIResponse.with_schema_content_type(
+                self._schema_for_type(response_type, components, schema_hook),
+                response_content_type,
+            )
+        parameters: list[OpenAPIParam] = []
+        locations: tuple[Literal["query", "header", "cookie", "path"], ...] = (
+            "query",
+            "header",
+            "cookie",
+            "path",
+        )
+        for location, type_ in zip(
+            locations, (query_type, header_type, cookie_type, path_type), strict=True
+        ):
+            if type_ is not None:
+                parameters.extend(
+                    self._parameters(type_, location, components, schema_hook)
+                )
+        placeholders = set(re.findall(r"\{([^{}]+)\}", path))
+        path_parameters = {
+            param.name for param in parameters if param.located_in == "path"
+        }
+        if placeholders != path_parameters:
+            raise ValueError(
+                "path_type fields must exactly match the path placeholders."
+            )
+        route = OpenAPIRoute(
+            summary=summary or f"{method} from {path.replace('/', ' ')}",
+            operation_id=operation_id,
+            request_body=request_body,
+            responses={"200": response},
+            parameters=parameters,
+            deprecated=deprecated,
+            security=msgspec.UNSET if security is None else security,
+        )
+        self.components.schemas.update(components)
+        self.paths.setdefault(path, {})[method] = route
 
     def to_json(self) -> bytes:
         """Convert to a JSON bytes that is commonly used in HTTP endpoint."""
