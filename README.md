@@ -91,7 +91,8 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   OAuth flows omit absent fields and keep the required `scopes` map.
 - Invalid routes, equivalent path templates, duplicate operation IDs, and
   conflicting schema names raise `ValueError` without changing the document.
-  Use distinct model names and `operation_id` values to resolve conflicts.
+  HTTP methods are case-insensitive. Use distinct model names and `operation_id`
+  values to resolve conflicts.
 
 The tests validate generated documents against OpenAPI 3.1. Validate custom
 schemas and direct edits before use.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, make_dataclass
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, get_args
 
 import msgspec
 import pytest
@@ -15,6 +15,7 @@ from defspec.spec import (
     ImplicitOAuthFlow,
     OAuthFlow,
     OAuthFlowAuthorizationCode,
+    ParameterLocation,
     PasswordOAuthFlow,
 )
 
@@ -27,9 +28,7 @@ def valid_document(api):
     return document
 
 
-@pytest.mark.parametrize(
-    "method", ["get", "post", "put", "delete", "head", "options", "trace", "patch"]
-)
+@pytest.mark.parametrize("method", get_args(HTTP_METHODS))
 def test_bodyless_routes(method):
     api = OpenAPI()
     api.register_route("/health", method)
@@ -39,6 +38,17 @@ def test_bodyless_routes(method):
     assert "requestBody" not in operation
     assert operation["responses"]["200"] == {"description": "OK"}
     assert "security" not in operation
+
+
+@pytest.mark.parametrize("method", get_args(HTTP_METHODS))
+def test_method_case_is_normalized_before_registration(method):
+    api = OpenAPI()
+    api.register_route("/health", method.upper())
+    api.register_route("/health", method.capitalize(), summary="Updated")
+    routes = valid_document(api)["paths"]["/health"]
+    assert list(routes) == [method]
+    assert routes[method]["operationId"] == f"{method}__health"
+    assert routes[method]["summary"] == "Updated"
 
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])
@@ -70,7 +80,7 @@ def test_inline_parameter_schemas(type_):
     valid_document(api)
 
 
-@pytest.mark.parametrize("location", ["query", "header", "cookie", "path"])
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
 @pytest.mark.parametrize("minimum", [1, 10])
 def test_parameter_model_siblings_preserve_constraints(location, minimum):
     class Parameters(msgspec.Struct):
@@ -122,7 +132,7 @@ def test_parameter_model_siblings_preserve_constraints(location, minimum):
     assert "maximum" not in parameters[1]["schema"]
 
 
-@pytest.mark.parametrize("location", ["query", "header", "cookie", "path"])
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
 @pytest.mark.parametrize("field_schema", [True, False])
 def test_boolean_parameter_schemas(location, field_schema):
     class Parameters:
@@ -188,7 +198,7 @@ def test_unrepresentable_parameter_siblings_are_rejected_atomically(constraints)
     assert api.to_dict() == before
 
 
-@pytest.mark.parametrize("location", ["query", "header", "cookie", "path"])
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
 @pytest.mark.parametrize("referenced", [False, True])
 @pytest.mark.parametrize(
     "constraints",
@@ -378,17 +388,19 @@ def test_invalid_path_parameters_are_atomic(path, type_):
     "path,method",
     [
         ("/", "connect"),
-        ("/", "GET"),
+        ("/", "CONNECT"),
         ("relative", "get"),
         ("/users/{id", "get"),
         ("/users/{}", "get"),
+        ("/users/{{id}}", "get"),
+        ("/users/{id}}", "get"),
         ("/users?x=1", "get"),
     ],
 )
 def test_invalid_routes(path, method):
     api = OpenAPI()
     with pytest.raises(ValueError):
-        api.register_route(path, cast(HTTP_METHODS, method))
+        api.register_route(path, method)
     assert not api.paths
 
 
@@ -415,6 +427,51 @@ def test_operation_id_collisions_and_explicit_ids():
     with pytest.raises(ValueError, match="Duplicate operationId"):
         api.register_route("/other", "post", operation_id="get_flat_ab")
     api.register_route("/a_b", "get", operation_id="get_flat_ab", summary="Updated")
+    valid_document(api)
+
+
+def test_route_checks_use_current_paths_after_direct_edits():
+    api = OpenAPI()
+    api.register_route("/users/{id}", "get", path_type=PathParameters)
+    routes = api.paths.pop("/users/{id}")
+    routes["get"].parameters[0].name = "name"
+    routes["get"].operation_id = "edited"
+    api.paths["/users/{name}"] = routes
+    before = valid_document(api)
+    with pytest.raises(ValueError, match="Equivalent path"):
+        api.register_route("/users/{id}", "post", path_type=PathParameters)
+    with pytest.raises(ValueError, match="Duplicate operationId"):
+        api.register_route("/other", "get", operation_id="edited")
+    assert api.to_dict() == before
+    api.paths.clear()
+    api.register_route(
+        "/users/{id}", "get", path_type=PathParameters, operation_id="edited"
+    )
+    valid_document(api)
+
+
+def test_adjacent_path_placeholders_are_preserved():
+    class FilePath(msgspec.Struct):
+        name: str
+        extension: str
+
+    api = OpenAPI()
+    api.register_route("/files/{name}.{extension}", "get", path_type=FilePath)
+    parameters = valid_document(api)["paths"]["/files/{name}.{extension}"]["get"][
+        "parameters"
+    ]
+    assert [param["name"] for param in parameters] == ["name", "extension"]
+
+
+def test_plain_paths_dict_preserves_other_methods_and_route_references():
+    api = OpenAPI(paths={})
+    api.register_route("/", "get")
+    routes = api.paths["/"]
+    api.register_route("/", "post")
+    api.register_route("/", "GET", summary="Updated")
+    assert api.paths["/"] is routes
+    assert list(routes) == ["get", "post"]
+    assert routes["get"].summary == "Updated"
     valid_document(api)
 
 
