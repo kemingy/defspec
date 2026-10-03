@@ -228,7 +228,7 @@ def _check_parameter_constraints(
     schema: dict, properties: dict, *, allow_ref: bool = False
 ):
     """Reject constraints that cannot be represented by separate parameters."""
-    supported = {
+    unsupported = schema.keys() - {
         "type",
         "properties",
         "required",
@@ -237,17 +237,16 @@ def _check_parameter_constraints(
         "$comment",
     }
     if allow_ref:
-        supported.add("$ref")
-    unsupported = schema.keys() - supported
-    if "type" in schema and schema["type"] != "object":
+        unsupported.discard("$ref")
+    if schema.get("type", "object") != "object":
         unsupported.add("type")
     if unsupported:
         raise ValueError(
             f"Cannot expand parameter model constraints: {', '.join(sorted(unsupported))}."
         )
-    constraints = schema.get("properties", {})
-    extra_required = schema.get("required", [])
-    unknown = (constraints.keys() | set(extra_required)) - properties.keys()
+    unknown = (
+        schema.get("properties", {}).keys() | set(schema.get("required", []))
+    ) - properties.keys()
     if unknown:
         raise ValueError(
             "Cannot expand parameter model constraints for undeclared fields: "
@@ -304,8 +303,9 @@ def _parameters(
     components: dict[str, dict],
     schema_hook: Optional[Callable[[type], dict[str, Any]]],
 ) -> list[OpenAPIParam]:
-    schema = _schema_for_type(type_, components, schema_hook)
-    model = _parameter_model(schema, components)
+    model = _parameter_model(
+        _schema_for_type(type_, components, schema_hook), components
+    )
     if model.get("type") == "object" and "properties" in model:
         _check_parameter_constraints(model, model["properties"])
         required = model.get("required", [])
