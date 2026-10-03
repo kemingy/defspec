@@ -327,9 +327,14 @@ def _parameters(
             "path_type must be a model whose fields match the URL placeholders."
         )
     else:
+        name = getattr(type_, "__name__", None)
+        if name is None:
+            raise ValueError(
+                f"{location}_type has no parameter name; use a model with named fields."
+            )
         parameters = [
             OpenAPIParam(
-                name=type_.__name__,
+                name=name,
                 located_in=location,
                 schema=deepcopy(model),
                 description=get_def_doc(type_),

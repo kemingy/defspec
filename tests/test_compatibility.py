@@ -80,6 +80,37 @@ def test_inline_parameter_schemas(type_):
     valid_document(api)
 
 
+@pytest.mark.parametrize("location", ["query", "header", "cookie"])
+@pytest.mark.parametrize("type_,alternative", [(int | str, "text"), (int | None, None)])
+def test_unnamed_scalar_parameters_are_rejected_atomically(
+    location, type_, alternative
+):
+    class Payload(msgspec.Struct):
+        value: int
+
+    api = OpenAPI()
+    api.register_route("/", "get")
+    before = api.to_dict()
+    with pytest.raises(
+        ValueError,
+        match=f"{location}_type has no parameter name; use a model with named fields",
+    ):
+        api.register_route(
+            "/", "get", request_type=Payload, **{f"{location}_type": type_}
+        )
+    assert api.to_dict() == before
+
+    parameters = msgspec.defstruct("Parameters", [("value", type_)])
+    api.register_route("/", "get", **{f"{location}_type": parameters})
+    parameter = valid_document(api)["paths"]["/"]["get"]["parameters"][0]
+    assert parameter["name"] == "value"
+    assert parameter["in"] == location
+    validator = OAS31Validator(parameter["schema"])
+    assert validator.is_valid(1)
+    assert validator.is_valid(alternative)
+    assert not validator.is_valid([])
+
+
 @pytest.mark.parametrize("location", get_args(ParameterLocation))
 @pytest.mark.parametrize("minimum", [1, 10])
 def test_parameter_model_siblings_preserve_constraints(location, minimum):
