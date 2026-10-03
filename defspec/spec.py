@@ -18,6 +18,7 @@ else:
     from typing_extensions import Self
 
 DEFAULT_CONTENT_TYPE = "application/json"
+ParameterLocation = Literal["query", "header", "cookie", "path"]
 
 
 class OpenAPIInfo(msgspec.Struct, kw_only=True):
@@ -28,9 +29,7 @@ class OpenAPIInfo(msgspec.Struct, kw_only=True):
 
 class OpenAPIParam(msgspec.Struct, kw_only=True):
     name: str
-    located_in: Literal["query", "header", "cookie", "path"] = msgspec.field(
-        default="query", name="in"
-    )
+    located_in: ParameterLocation = msgspec.field(default="query", name="in")
     required: bool = True
     description: str = ""
     schema: Union[dict[str, Any], bool]
@@ -325,7 +324,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     def _parameters(
         self,
         type_: Any,
-        location: Literal["query", "header", "cookie", "path"],
+        location: ParameterLocation,
         components: dict[str, dict],
         schema_hook: Optional[Callable[[type], dict[str, Any]]],
     ) -> list[OpenAPIParam]:
@@ -470,7 +469,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
                 response_content_type,
             )
         parameters: list[OpenAPIParam] = []
-        parameter_types: dict[Literal["query", "header", "cookie", "path"], Any] = {
+        parameter_types: dict[ParameterLocation, Any] = {
             "query": query_type,
             "header": header_type,
             "cookie": cookie_type,
