@@ -279,6 +279,75 @@ def _parameter_model(schema: dict, components: dict[str, dict]) -> dict:
     }
 
 
+def _schema_for_type(
+    type_: Any,
+    components: dict[str, dict],
+    schema_hook: Optional[Callable[[type], dict[str, Any]]],
+) -> dict:
+    schemas, definitions = msgspec.json.schema_components(
+        (type_,),
+        schema_hook=schema_hook,
+        ref_template="#/components/schemas/{name}",
+    )
+    for name, definition in definitions.items():
+        if name in components and components[name] != definition:
+            raise ValueError(
+                f"Conflicting schema name {name!r}; use distinct model names."
+            )
+        components[name] = definition
+    return schemas[0]
+
+
+def _parameters(
+    type_: Any,
+    location: ParameterLocation,
+    components: dict[str, dict],
+    schema_hook: Optional[Callable[[type], dict[str, Any]]],
+) -> list[OpenAPIParam]:
+    schema = _schema_for_type(type_, components, schema_hook)
+    model = _parameter_model(schema, components)
+    if model.get("type") == "object" and "properties" in model:
+        _check_parameter_constraints(model, model["properties"])
+        required = model.get("required", [])
+        # Copy fields separately: hooks may reuse a schema dictionary.
+        parameters = [
+            OpenAPIParam(
+                name=name,
+                located_in=location,
+                required=location == "path" or name in required,
+                schema=deepcopy(field),
+                description=field.get("description", "")
+                if isinstance(field, dict)
+                else "",
+            )
+            for name, field in model["properties"].items()
+        ]
+    elif location == "path":
+        raise ValueError("path_type must be an object model with named fields.")
+    else:
+        parameters = [
+            OpenAPIParam(
+                name=type_.__name__,
+                located_in=location,
+                schema=deepcopy(model),
+                description=get_def_doc(type_),
+            )
+        ]
+    if location == "header":
+        reserved = [
+            param.name
+            for param in parameters
+            if param.name.lower() in ("accept", "content-type", "authorization")
+        ]
+        if reserved:
+            raise ValueError(
+                f"Cannot define reserved header parameters: {', '.join(sorted(reserved))}. "
+                "Use security schemes for Authorization and media types for "
+                "Accept and Content-Type."
+            )
+    return parameters
+
+
 class OpenAPI(msgspec.Struct, kw_only=True):
     """OpenAPI specification.
 
@@ -311,76 +380,6 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     def defs(self) -> dict[str, dict]:
         """Compatibility alias for components.schemas; never serialized as $defs."""
         return self.components.schemas
-
-    @staticmethod
-    def _schema_for_type(
-        type_: Any,
-        components: dict[str, dict],
-        schema_hook: Optional[Callable[[type], dict[str, Any]]],
-    ) -> dict:
-        schemas, definitions = msgspec.json.schema_components(
-            (type_,),
-            schema_hook=schema_hook,
-            ref_template="#/components/schemas/{name}",
-        )
-        for name, definition in definitions.items():
-            if name in components and components[name] != definition:
-                raise ValueError(
-                    f"Conflicting schema name {name!r}; use distinct model names."
-                )
-            components[name] = definition
-        return schemas[0]
-
-    @classmethod
-    def _parameters(
-        cls,
-        type_: Any,
-        location: ParameterLocation,
-        components: dict[str, dict],
-        schema_hook: Optional[Callable[[type], dict[str, Any]]],
-    ) -> list[OpenAPIParam]:
-        schema = cls._schema_for_type(type_, components, schema_hook)
-        model = _parameter_model(schema, components)
-        if model.get("type") == "object" and "properties" in model:
-            _check_parameter_constraints(model, model["properties"])
-            required = model.get("required", [])
-            # Copy fields separately: hooks may reuse a schema dictionary.
-            parameters = [
-                OpenAPIParam(
-                    name=name,
-                    located_in=location,
-                    required=location == "path" or name in required,
-                    schema=deepcopy(field),
-                    description=field.get("description", "")
-                    if isinstance(field, dict)
-                    else "",
-                )
-                for name, field in model["properties"].items()
-            ]
-        elif location == "path":
-            raise ValueError("path_type must be an object model with named fields.")
-        else:
-            parameters = [
-                OpenAPIParam(
-                    name=type_.__name__,
-                    located_in=location,
-                    schema=deepcopy(model),
-                    description=get_def_doc(type_),
-                )
-            ]
-        if location == "header":
-            reserved = [
-                param.name
-                for param in parameters
-                if param.name.lower() in ("accept", "content-type", "authorization")
-            ]
-            if reserved:
-                raise ValueError(
-                    f"Cannot define reserved header parameters: {', '.join(sorted(reserved))}. "
-                    "Use security schemes for Authorization and media types for "
-                    "Accept and Content-Type."
-                )
-        return parameters
 
     def _check_route(self, path: str, method: str, operation_id: str) -> frozenset[str]:
         if method not in get_args(HTTP_METHODS):
@@ -469,7 +468,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         components = self.components.schemas.copy()
         request_body = (
             OpenAPIRequestBody.with_schema_content_type(
-                self._schema_for_type(request_type, components, schema_hook),
+                _schema_for_type(request_type, components, schema_hook),
                 request_content_type,
             )
             if request_type is not None
@@ -477,7 +476,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         )
         response = (
             OpenAPIResponse.with_schema_content_type(
-                self._schema_for_type(response_type, components, schema_hook),
+                _schema_for_type(response_type, components, schema_hook),
                 response_content_type,
             )
             if response_type is not None
@@ -492,9 +491,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             ("path", path_type),
         ):
             if type_ is not None:
-                parameters.extend(
-                    self._parameters(type_, location, components, schema_hook)
-                )
+                parameters.extend(_parameters(type_, location, components, schema_hook))
         path_parameters = {
             param.name for param in parameters if param.located_in == "path"
         }
