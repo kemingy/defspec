@@ -90,7 +90,16 @@ class SecuritySchemeOpenID(msgspec.Struct, tag_field="type", tag="openIdConnect"
     open_id_connect_url: str = msgspec.field(name="openIdConnectUrl")
 
 
-class OAuthFlowAuthorizationCode(msgspec.Struct):
+class _OAuthFlowMixin:
+    __slots__ = ()
+    refresh_url: Union[str, None, msgspec.UnsetType]
+
+    def __post_init__(self):
+        if self.refresh_url is None:
+            self.refresh_url = msgspec.UNSET
+
+
+class OAuthFlowAuthorizationCode(_OAuthFlowMixin, msgspec.Struct):
     authorization_url: str = msgspec.field(name="authorizationUrl")
     token_url: str = msgspec.field(name="tokenUrl")
     refresh_url: Union[str, None, msgspec.UnsetType] = msgspec.field(
@@ -98,33 +107,21 @@ class OAuthFlowAuthorizationCode(msgspec.Struct):
     )
     scopes: dict[str, str] = msgspec.field(default_factory=dict)
 
-    def __post_init__(self):
-        if self.refresh_url is None:
-            self.refresh_url = msgspec.UNSET
 
-
-class ImplicitOAuthFlow(msgspec.Struct):
+class ImplicitOAuthFlow(_OAuthFlowMixin, msgspec.Struct):
     authorization_url: str = msgspec.field(name="authorizationUrl")
     refresh_url: Union[str, None, msgspec.UnsetType] = msgspec.field(
         name="refreshUrl", default=msgspec.UNSET
     )
     scopes: dict[str, str] = msgspec.field(default_factory=dict)
 
-    def __post_init__(self):
-        if self.refresh_url is None:
-            self.refresh_url = msgspec.UNSET
 
-
-class PasswordOAuthFlow(msgspec.Struct):
+class PasswordOAuthFlow(_OAuthFlowMixin, msgspec.Struct):
     token_url: str = msgspec.field(name="tokenUrl")
     refresh_url: Union[str, None, msgspec.UnsetType] = msgspec.field(
         name="refreshUrl", default=msgspec.UNSET
     )
     scopes: dict[str, str] = msgspec.field(default_factory=dict)
-
-    def __post_init__(self):
-        if self.refresh_url is None:
-            self.refresh_url = msgspec.UNSET
 
 
 class ClientCredentialsOAuthFlow(PasswordOAuthFlow):
