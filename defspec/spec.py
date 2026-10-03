@@ -453,15 +453,15 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             deprecated: Mark this endpoint as deprecated.
             schema_hook: Function that describes types msgspec does not recognize.
             path_type: Model with one field for each URL placeholder.
-            operation_id: Unique name used by API clients. Defaults to the method and
-                path, with slashes replaced by underscores, such as get__users.
+            operation_id: Unique name used by API clients. Defaults to the path with
+                slashes replaced by underscores, then the method, such as _users_get.
             security: None uses global security; [] makes this endpoint public.
         """
         method = method.lower()
         operation_id = (
             operation_id
             if operation_id is not None
-            else f"{method}_{path.replace('/', '_')}"
+            else f"{path.replace('/', '_')}_{method}"
         )
         placeholders = self._check_route(path, method, operation_id)
         # Stage all changes so a failure cannot overwrite an existing operation
