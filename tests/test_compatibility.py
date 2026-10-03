@@ -47,7 +47,7 @@ def test_method_case_is_normalized_before_registration(method):
     api.register_route("/health", method.capitalize(), summary="Updated")
     routes = valid_document(api)["paths"]["/health"]
     assert list(routes) == [method]
-    assert routes[method]["operationId"] == f"_health_{method}"
+    assert routes[method]["operationId"] == f"_health_0587c50e302cd55b_{method}"
     assert routes[method]["summary"] == "Updated"
 
 
@@ -459,20 +459,40 @@ def test_equivalent_path_templates_are_rejected():
     valid_document(api)
 
 
+@pytest.mark.parametrize("paths", [("/a/b", "/a_b"), ("/a_b", "/a/b")])
+def test_default_operation_ids_are_unique_and_stable(paths):
+    api = OpenAPI()
+    for path in paths:
+        api.register_route(path, "GET")
+    expected = {
+        "/a/b": "_a_b_662b7b62a798bb2d_get",
+        "/a_b": "_a_b_328ff01fbf3d95bf_get",
+    }
+    document = valid_document(api)
+    assert {
+        path: routes["get"]["operationId"] for path, routes in document["paths"].items()
+    } == expected
+
+    api = msgspec.json.decode(api.to_json(), type=OpenAPI)
+    api.register_route(paths[0], "Get", summary="Updated")
+    route = valid_document(api)["paths"][paths[0]]["get"]
+    assert route["operationId"] == expected[paths[0]]
+    assert route["summary"] == "Updated"
+
+
 def test_operation_id_collisions_and_explicit_ids():
     api = OpenAPI()
     api.register_route("/a/b", "get")
-    before = api.to_dict()
-    with pytest.raises(ValueError, match="Duplicate operationId"):
-        api.register_route("/a_b", "get")
-    assert api.to_dict() == before
     api.register_route("/a_b", "get", operation_id="get_flat_ab")
-    with pytest.raises(ValueError, match="Duplicate operationId"):
-        api.register_route("/other", "post", operation_id="get_flat_ab")
+    before = api.to_dict()
+    for operation_id in ("get_flat_ab", api.paths["/a/b"]["get"].operation_id):
+        with pytest.raises(ValueError, match="Duplicate operationId"):
+            api.register_route("/other", "post", operation_id=operation_id)
+        assert api.to_dict() == before
     api.register_route("/a_b", "get", operation_id="get_flat_ab", summary="Updated")
     document = valid_document(api)
-    assert document["paths"]["/a/b"]["get"]["operationId"] == "_a_b_get"
     assert document["paths"]["/a_b"]["get"]["operationId"] == "get_flat_ab"
+    assert document["paths"]["/a_b"]["get"]["summary"] == "Updated"
 
 
 def test_route_checks_use_current_paths_after_direct_edits():

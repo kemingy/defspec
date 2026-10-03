@@ -7,6 +7,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from copy import deepcopy
 from functools import lru_cache
+from hashlib import sha256
 from types import UnionType
 from typing import Any, Literal, Optional, Union, get_args, get_origin
 
@@ -464,14 +465,15 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             schema_hook: Function that describes types msgspec does not recognize.
             path_type: Model with one field for each URL placeholder.
             operation_id: Unique name used by API clients. Defaults to the path with
-                slashes replaced by underscores, then the method, such as _users_get.
+                slashes replaced by underscores, a stable hash of the original path,
+                and the lowercase method: _users_<hash>_get.
             security: None uses global security; [] makes this endpoint public.
         """
         method = method.lower()
         operation_id = (
             operation_id
             if operation_id is not None
-            else f"{path.replace('/', '_')}_{method}"
+            else f"{path.replace('/', '_')}_{sha256(path.encode()).hexdigest()[:16]}_{method}"
         )
         placeholders = self._check_route(path, method, operation_id)
         # Stage all changes so a failure cannot overwrite an existing operation

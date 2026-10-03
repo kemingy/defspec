@@ -90,8 +90,8 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   Use `type(None)` for JSON null. Routes document a `200` response by default.
 - Omit `security` to inherit global security; use `security=[]` for public routes.
   OAuth flows omit absent fields and keep the required `scopes` map.
-- Default operation IDs put the path first and method last: `/users` + GET
-  becomes `_users_get`. Set `operation_id` to choose your own name.
+- Default operation IDs include a stable path hash: `_users_<hash>_get` for
+  GET `/users`. Set `operation_id` to choose your own name.
 - Invalid routes, equivalent path templates, duplicate operation IDs, and
   empty or conflicting schema names raise `ValueError` without changing the
   document. HTTP methods are case-insensitive. Use distinct model names and

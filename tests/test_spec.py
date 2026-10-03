@@ -274,7 +274,7 @@ def test_openapi_spec(openapi_spec):
 
     health_check = spec["paths"]["/"]["get"]
     assert health_check["summary"] == "health check"
-    assert health_check["operationId"] == "__get"
+    assert health_check["operationId"] == "__8a5edab282632443_get"
     assert health_check["responses"] == {"200": {"description": "OK"}}
     assert "parameters" not in health_check
     assert "requestBody" not in health_check
@@ -282,7 +282,7 @@ def test_openapi_spec(openapi_spec):
 
     test = spec["paths"]["/test"]["post"]
     assert test["summary"] == "basic test"
-    assert test["operationId"] == "_test_post"
+    assert test["operationId"] == "_test_b306d9ff847c120d_post"
 
     request = test["requestBody"]["content"]["application/json"]["schema"]
     assert request["$ref"].startswith("#/components/schemas/RequestBody")
