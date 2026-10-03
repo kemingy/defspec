@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, make_dataclass
-from typing import Annotated, Literal, get_args
+from typing import Annotated, Literal, Optional, Union, get_args
 
 import msgspec
 import pytest
@@ -81,7 +81,15 @@ def test_inline_parameter_schemas(type_):
 
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])
-@pytest.mark.parametrize("type_,alternative", [(int | str, "text"), (int | None, None)])
+@pytest.mark.parametrize(
+    "type_,alternative",
+    [
+        pytest.param(int | str, "text", id="pep604-union"),
+        pytest.param(Union[int, str], "text", id="typing-union"),
+        pytest.param(int | None, None, id="pep604-optional"),
+        pytest.param(Optional[int], None, id="typing-optional"),
+    ],
+)
 def test_unnamed_scalar_parameters_are_rejected_atomically(
     location, type_, alternative
 ):

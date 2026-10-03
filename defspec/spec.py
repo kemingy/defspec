@@ -7,7 +7,8 @@ from collections import defaultdict
 from collections.abc import Callable
 from copy import deepcopy
 from functools import lru_cache
-from typing import Any, Literal, Optional, Union, get_args
+from types import UnionType
+from typing import Any, Literal, Optional, Union, get_args, get_origin
 
 import msgspec
 
@@ -328,7 +329,8 @@ def _parameters(
         )
     else:
         name = getattr(type_, "__name__", None)
-        if name is None:
+        # Python 3.14 gives unions the generic name "Union".
+        if name is None or get_origin(type_) in (Union, UnionType):
             raise ValueError(
                 f"{location}_type has no parameter name; use a model with named fields."
             )

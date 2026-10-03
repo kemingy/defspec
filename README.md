@@ -78,7 +78,7 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   When migrating, update saved `$defs` references. The `defs=` constructor argument
   is removed; `openapi.defs` remains an alias for `openapi.components.schemas`.
 - Query, header, cookie, and path models expand into one parameter per encoded
-  field name. Wrap unnamed types such as `int | str` in a model. Defaults make
+  field name. Wrap unions such as `int | str` in a model. Defaults make
   fields optional unless the schema requires them.
   Path fields are always required and must exactly match the route placeholders.
 - Field constraints and descriptions are preserved, and parameter schemas are
