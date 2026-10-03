@@ -5,6 +5,7 @@ import re
 import sys
 from collections import defaultdict
 from collections.abc import Callable
+from copy import deepcopy
 from typing import Any, Literal, Optional, Union, get_args
 
 import msgspec
@@ -217,6 +218,37 @@ def _constrain_parameter_schema(
     return schema
 
 
+def _check_parameter_constraints(
+    schema: dict, properties: dict, *, allow_ref: bool = False
+):
+    """Reject constraints that cannot be represented by separate parameters."""
+    supported = {
+        "type",
+        "properties",
+        "required",
+        "title",
+        "description",
+        "$comment",
+    }
+    if allow_ref:
+        supported.add("$ref")
+    unsupported = schema.keys() - supported
+    if "type" in schema and schema["type"] != "object":
+        unsupported.add("type")
+    if unsupported:
+        raise ValueError(
+            f"Cannot expand parameter model constraints: {', '.join(sorted(unsupported))}."
+        )
+    constraints = schema.get("properties", {})
+    extra_required = schema.get("required", [])
+    unknown = (constraints.keys() | set(extra_required)) - properties.keys()
+    if unknown:
+        raise ValueError(
+            "Cannot expand parameter model constraints for undeclared fields: "
+            f"{', '.join(sorted(unknown))}."
+        )
+
+
 def _parameter_model(schema: dict, components: dict[str, dict]) -> dict:
     """Resolve a local model reference and preserve representable siblings."""
     ref = schema.get("$ref", "")
@@ -227,39 +259,17 @@ def _parameter_model(schema: dict, components: dict[str, dict]) -> dict:
     if model.get("type") != "object" or "properties" not in model:
         return schema
 
-    supported = {
-        "$ref",
-        "type",
-        "properties",
-        "required",
-        "title",
-        "description",
-        "$comment",
-    }
-    unsupported = schema.keys() - supported
-    if "type" in schema and schema["type"] != "object":
-        unsupported.add("type")
-    if unsupported:
-        raise ValueError(
-            f"Cannot expand parameter model constraints: {', '.join(sorted(unsupported))}."
-        )
-    constraints = schema.get("properties", {})
-    extra_required = schema.get("required", [])
-    unknown = (constraints.keys() | set(extra_required)) - model["properties"].keys()
-    if unknown:
-        raise ValueError(
-            "Cannot expand parameter model constraints for undeclared fields: "
-            f"{', '.join(sorted(unknown))}."
-        )
-    # Work on copies: the referenced model may also describe a request body or
-    # be reused by another operation without these parameter constraints.
+    _check_parameter_constraints(schema, model["properties"], allow_ref=True)
+
     properties = model["properties"].copy()
-    for name, constraint in constraints.items():
+    for name, constraint in schema.get("properties", {}).items():
         properties[name] = _constrain_parameter_schema(properties[name], constraint)
     return {
         **model,
         "properties": properties,
-        "required": list(dict.fromkeys([*model.get("required", []), *extra_required])),
+        "required": list(
+            dict.fromkeys([*model.get("required", []), *schema.get("required", [])])
+        ),
     }
 
 
@@ -325,29 +335,45 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         schema = self._schema_for_type(type_, components, schema_hook)
         model = _parameter_model(schema, components)
         if model.get("type") == "object" and "properties" in model:
+            _check_parameter_constraints(model, model["properties"])
             required = model.get("required", [])
-            return [
+            # Copy fields separately: hooks may reuse a schema dictionary.
+            parameters = [
                 OpenAPIParam(
                     name=name,
                     located_in=location,
                     required=location == "path" or name in required,
-                    schema=field,
+                    schema=deepcopy(field),
                     description=field.get("description", "")
                     if isinstance(field, dict)
                     else "",
                 )
                 for name, field in model["properties"].items()
             ]
-        if location == "path":
+        elif location == "path":
             raise ValueError("path_type must be an object model with named fields.")
-        return [
-            OpenAPIParam(
-                name=type_.__name__,
-                located_in=location,
-                schema=schema,
-                description=get_def_doc(type_),
-            )
-        ]
+        else:
+            parameters = [
+                OpenAPIParam(
+                    name=type_.__name__,
+                    located_in=location,
+                    schema=deepcopy(model),
+                    description=get_def_doc(type_),
+                )
+            ]
+        if location == "header":
+            reserved = {
+                param.name
+                for param in parameters
+                if param.name.lower() in {"accept", "content-type", "authorization"}
+            }
+            if reserved:
+                raise ValueError(
+                    f"Cannot define reserved header parameters: {', '.join(sorted(reserved))}. "
+                    "Use security schemes for Authorization and media types for "
+                    "Accept and Content-Type."
+                )
+        return parameters
 
     def _check_route(self, path: str, method: HTTP_METHODS, operation_id: str):
         if method not in get_args(HTTP_METHODS):
@@ -401,7 +427,9 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         Object parameter models expand into one parameter per encoded field name.
         Defaults determine optionality, except that path parameters are always required.
         Sibling properties and required constraints on a model reference can further
-        constrain declared fields. Unsupported sibling constraints raise ValueError.
+        constrain declared fields. Unrepresentable object constraints and reserved
+        header parameter names raise ValueError. Parameter schema edits do not change
+        component schemas.
         Invalid routes and conflicting schema names raise ValueError without changing
         the document.
 
@@ -445,15 +473,13 @@ class OpenAPI(msgspec.Struct, kw_only=True):
                 response_content_type,
             )
         parameters: list[OpenAPIParam] = []
-        locations: tuple[Literal["query", "header", "cookie", "path"], ...] = (
-            "query",
-            "header",
-            "cookie",
-            "path",
-        )
-        for location, type_ in zip(
-            locations, (query_type, header_type, cookie_type, path_type), strict=True
-        ):
+        parameter_types: dict[Literal["query", "header", "cookie", "path"], Any] = {
+            "query": query_type,
+            "header": header_type,
+            "cookie": cookie_type,
+            "path": path_type,
+        }
+        for location, type_ in parameter_types.items():
             if type_ is not None:
                 parameters.extend(
                     self._parameters(type_, location, components, schema_hook)

@@ -188,6 +188,162 @@ def test_unrepresentable_parameter_siblings_are_rejected_atomically(constraints)
     assert api.to_dict() == before
 
 
+@pytest.mark.parametrize("location", ["query", "header", "cookie", "path"])
+@pytest.mark.parametrize("referenced", [False, True])
+@pytest.mark.parametrize(
+    "constraints",
+    [
+        {"dependentRequired": {"first": ["second"]}},
+        {"allOf": [{"required": ["first"]}]},
+        {"additionalProperties": False},
+        {
+            "$id": "https://example.com/parameters",
+            "$defs": {"Value": {"type": "string"}},
+            "properties": {
+                "first": {"$ref": "#/$defs/Value"},
+                "second": {"type": "string"},
+            },
+        },
+        {"required": ["unknown"]},
+        {"$ref": "https://example.com/other"},
+    ],
+)
+def test_unrepresentable_object_parameters_are_rejected_atomically(
+    location, referenced, constraints
+):
+    class Parameters:
+        pass
+
+    model = {
+        "type": "object",
+        "properties": {
+            "first": {"type": "string"},
+            "second": {"type": "string"},
+        },
+        **constraints,
+    }
+    api = OpenAPI(
+        components=OpenAPIComponent(schemas={"Parameters": model} if referenced else {})
+    )
+
+    def schema_hook(type_):
+        assert type_ is Parameters
+        return {"$ref": "#/components/schemas/Parameters"} if referenced else model
+
+    api.register_route("/", "get")
+    before = api.to_dict()
+    path = "/{first}/{second}" if location == "path" else "/"
+    with pytest.raises(ValueError, match="parameter model"):
+        api.register_route(
+            path, "get", schema_hook=schema_hook, **{f"{location}_type": Parameters}
+        )
+    assert api.to_dict() == before
+
+
+@pytest.mark.parametrize("constrained", [False, True])
+def test_parameter_schema_edits_do_not_change_components_or_other_parameters(
+    constrained,
+):
+    class Parameters(msgspec.Struct):
+        value: Annotated[int, msgspec.Meta(ge=0)]
+        items: list[int]
+
+    type_ = (
+        Annotated[
+            Parameters,
+            msgspec.Meta(
+                extra_json_schema={
+                    "properties": {
+                        "value": {"maximum": 10},
+                        "items": {"maxItems": 2},
+                    }
+                }
+            ),
+        ]
+        if constrained
+        else Parameters
+    )
+    api = OpenAPI()
+    api.register_route(
+        "/", "post", request_type=Parameters, query_type=type_, header_type=type_
+    )
+    before = valid_document(api)
+    # Header parameters come last and previously shared the current component.
+    value, items = api.paths["/"]["post"].parameters[2:]
+    assert isinstance(value.schema, dict)
+    assert isinstance(items.schema, dict)
+    value_schema = value.schema["allOf"][0] if constrained else value.schema
+    items_schema = items.schema["allOf"][0] if constrained else items.schema
+    value_schema["minimum"] = 3
+    items_schema["items"]["minimum"] = 5
+    after = valid_document(api)
+    assert after["components"] == before["components"]
+    assert (
+        after["paths"]["/"]["post"]["parameters"][:2]
+        == before["paths"]["/"]["post"]["parameters"][:2]
+    )
+    # The original model remains reusable after a parameter is customized.
+    api.register_route("/other", "get", query_type=Parameters)
+    assert valid_document(api)["components"] == before["components"]
+
+
+def test_inline_parameter_fields_do_not_share_hook_schema_dictionaries():
+    class Parameters:
+        pass
+
+    field = {"type": "array", "items": {"type": "integer"}}
+    model = {"type": "object", "properties": {"first": field, "second": field}}
+    api = OpenAPI()
+    api.register_route("/", "get", query_type=Parameters, schema_hook=lambda _: model)
+    first, second = api.paths["/"]["get"].parameters
+    assert isinstance(first.schema, dict)
+    assert isinstance(second.schema, dict)
+    first.schema["items"]["minimum"] = 1
+    assert second.schema == {"type": "array", "items": {"type": "integer"}}
+    assert field == second.schema
+    valid_document(api)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Accept",
+        "accept",
+        "Content-Type",
+        "cOnTeNt-TyPe",
+        "Authorization",
+        "authorization",
+    ],
+)
+@pytest.mark.parametrize("source", ["model", "inline", "scalar"])
+def test_reserved_header_names_are_rejected_atomically(name, source):
+    class Headers(msgspec.Struct):
+        value: str = msgspec.field(name=name)
+
+    class CustomHeaders:
+        pass
+
+    if source == "model":
+        type_ = Headers
+    elif source == "inline":
+        type_ = CustomHeaders
+    else:
+        type_ = type(name, (), {})
+
+    def schema_hook(cls):
+        assert cls is type_
+        if source == "scalar":
+            return {"type": "string"}
+        return {"type": "object", "properties": {name: {"type": "string"}}}
+
+    api = OpenAPI()
+    api.register_route("/", "get")
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="reserved header"):
+        api.register_route("/", "get", header_type=type_, schema_hook=schema_hook)
+    assert api.to_dict() == before
+
+
 class PathParameters(msgspec.Struct):
     user_id: int = msgspec.field(default=1, name="id")
 

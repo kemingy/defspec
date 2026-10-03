@@ -96,16 +96,27 @@ are optional unless explicitly required by a schema constraint; path parameters
 are always mandatory in OpenAPI.
 Named scalar/enum parameter types remain supported outside paths, using the
 type's `__name__` as the parameter name.
+Each parameter owns a copy of its field schema; editing that dictionary does not
+modify component schemas or other parameters.
+
+Header names `Authorization`, `Accept`, and `Content-Type` are rejected, regardless
+of case, because OpenAPI tools must ignore parameter definitions with these names.
+Use security schemes for authorization and `request_content_type` or
+`response_content_type` for media types.
 
 For an `Annotated` model, `properties` and `required` constraints beside its
 `$ref` can further constrain declared fields. Overlapping field schemas are
 combined with `allOf`, and required fields from both sources are retained without
 changing the shared component schema. Boolean field schemas (`true` and `false`)
 are also supported, including those returned inside a custom `schema_hook` schema.
-Sibling constraints that cannot be expanded this way, such as `dependentRequired`
-or model-level `allOf`, and constraints introducing undeclared fields raise
-`ValueError`. Sibling `title`, `description`, and `$comment` annotations are allowed,
-as is an explicit `type: object`; other sibling keywords are rejected.
+Constraints that cannot be expanded this way, such as `dependentRequired`,
+model-level `allOf`, or `additionalProperties`, and constraints introducing
+undeclared fields raise `ValueError`. This check applies to inline object schemas,
+referenced components, and reference siblings. Only `type: object`, `properties`,
+`required`, `title`, `description`, and `$comment` are supported on expanded object
+models. A local component `$ref` can select the model being expanded; other
+model-level references and `$id`/`$defs` scopes are rejected because expansion
+cannot preserve them. Field schemas retain their own constraints and references.
 
 ```python
 from dataclasses import dataclass
