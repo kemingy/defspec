@@ -536,6 +536,18 @@ def test_conflicting_models_are_rejected_without_mutation(same_route):
     valid_document(api)
 
 
+@pytest.mark.parametrize("nested", [False, True])
+def test_empty_model_names_are_rejected_atomically(nested):
+    unnamed = msgspec.defstruct("", [("value", int)])
+    type_ = msgspec.defstruct("Wrapper", [("value", unnamed)]) if nested else unnamed
+    api = OpenAPI()
+    api.register_route("/", "get", response_type=PathParameters)
+    before = valid_document(api)
+    with pytest.raises(ValueError, match="Model names must not be empty"):
+        api.register_route("/", "post", request_type=type_)
+    assert api.to_dict() == before
+
+
 def test_existing_components_are_not_overwritten():
     api = OpenAPI(
         components=OpenAPIComponent(schemas={"PathParameters": {"type": "string"}})

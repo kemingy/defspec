@@ -290,6 +290,8 @@ def _schema_for_type(
         ref_template="#/components/schemas/{name}",
     )
     for name, definition in definitions.items():
+        if not name:
+            raise ValueError("Model names must not be empty.")
         if name in components and components[name] != definition:
             raise ValueError(
                 f"Conflicting schema name {name!r}; use distinct model names."

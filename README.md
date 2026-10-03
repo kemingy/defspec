@@ -93,9 +93,9 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
 - Default operation IDs put the path first and method last: `/users` + GET
   becomes `_users_get`. Set `operation_id` to choose your own name.
 - Invalid routes, equivalent path templates, duplicate operation IDs, and
-  conflicting schema names raise `ValueError` without changing the document.
-  HTTP methods are case-insensitive. Use distinct model names and `operation_id`
-  values to resolve conflicts.
+  empty or conflicting schema names raise `ValueError` without changing the
+  document. HTTP methods are case-insensitive. Use distinct model names and
+  `operation_id` values to resolve conflicts.
 
 The tests validate generated documents against OpenAPI 3.1. Validate custom
 schemas and direct edits before use.
