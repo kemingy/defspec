@@ -323,7 +323,9 @@ def _parameters(
             for name, field in model["properties"].items()
         ]
     elif location == "path":
-        raise ValueError("path_type must be an object model with named fields.")
+        raise ValueError(
+            "path_type must be a model whose fields match the URL placeholders."
+        )
     else:
         parameters = [
             OpenAPIParam(

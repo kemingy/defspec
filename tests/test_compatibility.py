@@ -368,18 +368,22 @@ def test_path_parameters_are_always_required():
 
 
 @pytest.mark.parametrize(
-    "path,type_",
+    "path,type_,message",
     [
-        ("/users/{id}", None),
-        ("/users/{name}", PathParameters),
-        ("/users", PathParameters),
-        ("/users/{id}", int),
+        ("/users/{id}", None, "path_type"),
+        ("/users/{name}", PathParameters, "path_type"),
+        ("/users", PathParameters, "path_type"),
+        (
+            "/users/{id}",
+            int,
+            "path_type must be a model whose fields match the URL placeholders",
+        ),
     ],
 )
-def test_invalid_path_parameters_are_atomic(path, type_):
+def test_invalid_path_parameters_are_atomic(path, type_, message):
     api = OpenAPI()
     before = api.to_dict()
-    with pytest.raises(ValueError, match="path_type"):
+    with pytest.raises(ValueError, match=message):
         api.register_route(path, "get", path_type=type_)
     assert api.to_dict() == before
 
