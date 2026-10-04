@@ -192,7 +192,37 @@ def test_boolean_parameter_schemas(location, field_schema):
     )
     parameter = valid_document(api)["paths"][path]["get"]["parameters"][0]
     assert parameter["schema"] is field_schema
-    assert parameter["description"] == ""
+    assert "description" not in parameter
+
+
+def test_boolean_parameter_type_schema():
+    class Parameters:
+        pass
+
+    api = OpenAPI()
+    api.register_route("/", "get", query_type=Parameters, schema_hook=lambda _: True)
+    parameter = valid_document(api)["paths"]["/"]["get"]["parameters"][0]
+    assert parameter["name"] == "Parameters"
+    assert parameter["schema"] is True
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [
+        msgspec.Meta(description="Model-level description"),
+        msgspec.Meta(title="Model-level title"),
+    ],
+)
+def test_unrepresentable_model_metadata_is_rejected_atomically(meta):
+    class Parameters(msgspec.Struct):
+        value: int
+
+    api = OpenAPI()
+    api.register_route("/", "get")
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="parameter model"):
+        api.register_route("/", "get", query_type=Annotated[Parameters, meta])
+    assert api.to_dict() == before
 
 
 @pytest.mark.parametrize("field_schema", [True, False])

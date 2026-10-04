@@ -50,7 +50,7 @@ class OpenAPIParam(msgspec.Struct, kw_only=True):
     name: str
     located_in: ParameterLocation = msgspec.field(default="query", name="in")
     required: bool = True
-    description: str = ""
+    description: Union[str, msgspec.UnsetType] = msgspec.UNSET
     schema: Union[dict[str, Any], bool]
 
 
@@ -227,19 +227,15 @@ def _constrain_parameter_schema(
 
 
 def _check_parameter_constraints(
-    schema: dict, properties: dict, *, allow_ref: bool = False
+    schema: dict, properties: dict, *, allow_ref: bool = False, allow_meta: bool = True
 ):
     """Reject constraints that cannot be represented by separate parameters."""
-    unsupported = schema.keys() - {
-        "type",
-        "properties",
-        "required",
-        "title",
-        "description",
-        "$comment",
-    }
+    allowed = {"type", "properties", "required", "$comment"}
+    if allow_meta:
+        allowed |= {"title", "description"}
     if allow_ref:
-        unsupported.discard("$ref")
+        allowed.add("$ref")
+    unsupported = schema.keys() - allowed
     if schema.get("type", "object") != "object":
         unsupported.add("type")
     if unsupported:
@@ -256,17 +252,27 @@ def _check_parameter_constraints(
         )
 
 
-def _parameter_model(schema: dict, components: dict[str, dict]) -> dict:
+def _parameter_model(
+    schema: Union[dict, bool], components: dict[str, dict]
+) -> Union[dict, bool]:
     """Resolve a local model reference and preserve representable siblings."""
+    if not isinstance(schema, dict):
+        return schema
     ref = schema.get("$ref", "")
     prefix = "#/components/schemas/"
     if not ref.startswith(prefix):
         return schema
     model = components.get(ref.removeprefix(prefix), {})
-    if model.get("type") != "object" or "properties" not in model:
+    if (
+        not isinstance(model, dict)
+        or model.get("type") != "object"
+        or "properties" not in model
+    ):
         return schema
 
-    _check_parameter_constraints(schema, model["properties"], allow_ref=True)
+    _check_parameter_constraints(
+        schema, model["properties"], allow_ref=True, allow_meta=False
+    )
 
     properties = model["properties"].copy()
     for name, constraint in schema.get("properties", {}).items():
@@ -310,7 +316,11 @@ def _parameters(
     model = _parameter_model(
         _schema_for_type(type_, components, schema_hook), components
     )
-    if model.get("type") == "object" and "properties" in model:
+    if (
+        isinstance(model, dict)
+        and model.get("type") == "object"
+        and "properties" in model
+    ):
         _check_parameter_constraints(model, model["properties"])
         required = model.get("required", [])
         # Copy fields separately: hooks may reuse a schema dictionary.
@@ -320,9 +330,9 @@ def _parameters(
                 located_in=location,
                 required=location == "path" or name in required,
                 schema=deepcopy(field),
-                description=field.get("description", "")
+                description=(field.get("description") or msgspec.UNSET)
                 if isinstance(field, dict)
-                else "",
+                else msgspec.UNSET,
             )
             for name, field in model["properties"].items()
         ]
@@ -342,7 +352,7 @@ def _parameters(
                 name=name,
                 located_in=location,
                 schema=deepcopy(model),
-                description=get_def_doc(type_),
+                description=get_def_doc(type_) or msgspec.UNSET,
             )
         ]
     if location == "header":

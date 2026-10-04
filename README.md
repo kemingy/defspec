@@ -83,7 +83,8 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   Path fields are always required and must exactly match the route placeholders.
 - Field constraints and descriptions are preserved, and parameter schemas are
   copied independently. Object constraints that cannot be expanded, such as
-  `allOf`, `dependentRequired`, `additionalProperties`, or `$id`/`$defs`, are rejected.
+  `allOf`, `dependentRequired`, `additionalProperties`, `$id`/`$defs`, or
+  model-level `title`/`description` annotations, are rejected.
 - Header names `Authorization`, `Accept`, and `Content-Type` are rejected regardless
   of case. Use security schemes and request/response content types instead.
 - `request_type=None` omits the body; `response_type=None` omits response content.
