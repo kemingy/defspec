@@ -195,34 +195,139 @@ def test_boolean_parameter_schemas(location, field_schema):
     assert "description" not in parameter
 
 
-def test_boolean_parameter_type_schema():
+def test_boolean_parameter_type_schema() -> None:
     class Parameters:
         pass
 
+    def schema_hook(type_: type) -> bool:
+        return True
+
     api = OpenAPI()
-    api.register_route("/", "get", query_type=Parameters, schema_hook=lambda _: True)
+    api.register_route("/", "get", query_type=Parameters, schema_hook=schema_hook)
     parameter = valid_document(api)["paths"]["/"]["get"]["parameters"][0]
     assert parameter["name"] == "Parameters"
     assert parameter["schema"] is True
 
 
+def test_boolean_body_schemas() -> None:
+    class Payload:
+        pass
+
+    def schema_hook(type_: type) -> bool:
+        return True
+
+    api = OpenAPI()
+    api.register_route(
+        "/",
+        "post",
+        request_type=Payload,
+        response_type=Payload,
+        schema_hook=schema_hook,
+    )
+    operation = valid_document(api)["paths"]["/"]["post"]
+    assert operation["requestBody"]["content"]["application/json"]["schema"] is True
+    assert (
+        operation["responses"]["200"]["content"]["application/json"]["schema"] is True
+    )
+
+
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
+@pytest.mark.parametrize("component_schema", [True, False])
+def test_boolean_component_parameter_schema(location, component_schema):
+    class Parameters:
+        pass
+
+    api = OpenAPI(components=OpenAPIComponent(schemas={"Parameters": component_schema}))
+    if location == "path":
+        with pytest.raises(ValueError, match="path_type must be a model"):
+            api.register_route(
+                "/{value}",
+                "get",
+                schema_hook=lambda _: {"$ref": "#/components/schemas/Parameters"},
+                path_type=Parameters,
+            )
+        assert not api.paths
+    else:
+        api.register_route(
+            "/",
+            "get",
+            schema_hook=lambda _: {"$ref": "#/components/schemas/Parameters"},
+            **{f"{location}_type": Parameters},
+        )
+        parameter = valid_document(api)["paths"]["/"]["get"]["parameters"][0]
+        assert parameter["schema"] == {"$ref": "#/components/schemas/Parameters"}
+
+
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
+@pytest.mark.parametrize("source", ["native", "inline", "reference"])
 @pytest.mark.parametrize(
     "meta",
     [
         msgspec.Meta(description="Model-level description"),
         msgspec.Meta(title="Model-level title"),
+        msgspec.Meta(extra_json_schema={"description": "Model-level description"}),
+        msgspec.Meta(extra_json_schema={"title": "Model-level title"}),
     ],
 )
-def test_unrepresentable_model_metadata_is_rejected_atomically(meta):
+def test_unrepresentable_model_metadata_is_rejected_atomically(location, source, meta):
     class Parameters(msgspec.Struct):
         value: int
 
+    class Custom:
+        pass
+
+    model = {"type": "object", "properties": {"value": {"type": "integer"}}}
     api = OpenAPI()
     api.register_route("/", "get")
+    if source == "reference":
+        api.components.schemas["Custom"] = model
+    before = api.to_dict()
+    type_ = Parameters if source == "native" else Custom
+    schema = {"$ref": "#/components/schemas/Custom"} if source == "reference" else model
+    path = "/{value}" if location == "path" else "/"
+    with pytest.raises(ValueError, match="parameter model"):
+        api.register_route(
+            path,
+            "get",
+            request_type=Parameters,
+            schema_hook=lambda _: schema,
+            **{f"{location}_type": Annotated[type_, meta]},
+        )
+    assert api.to_dict() == before
+
+
+@pytest.mark.parametrize("keyword", ["title", "description"])
+def test_inline_hook_model_metadata_is_rejected_atomically(keyword):
+    class Parameters:
+        pass
+
+    model = {
+        "type": "object",
+        "properties": {"value": {"type": "integer"}},
+        keyword: "Model metadata",
+    }
+    api = OpenAPI()
     before = api.to_dict()
     with pytest.raises(ValueError, match="parameter model"):
-        api.register_route("/", "get", query_type=Annotated[Parameters, meta])
+        api.register_route(
+            "/", "get", query_type=Parameters, schema_hook=lambda _: model
+        )
     assert api.to_dict() == before
+
+
+def test_generated_model_metadata_is_allowed():
+    class Parameters(msgspec.Struct):
+        """A generated model description."""
+
+        value: int
+
+    api = OpenAPI()
+    api.register_route("/", "post", request_type=Parameters, query_type=Parameters)
+    document = valid_document(api)
+    component = document["components"]["schemas"]["Parameters"]
+    assert component["title"] == "Parameters"
+    assert component["description"] == "A generated model description."
+    assert document["paths"]["/"]["post"]["parameters"][0]["name"] == "value"
 
 
 @pytest.mark.parametrize("field_schema", [True, False])

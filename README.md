@@ -84,7 +84,7 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
 - Field constraints and descriptions are preserved, and parameter schemas are
   copied independently. Object constraints that cannot be expanded, such as
   `allOf`, `dependentRequired`, `additionalProperties`, `$id`/`$defs`, or
-  model-level `title`/`description` annotations, are rejected.
+  explicit model-level `title`/`description` annotations, are rejected.
 - Header names `Authorization`, `Accept`, and `Content-Type` are rejected regardless
   of case. Use security schemes and request/response content types instead.
 - `request_type=None` omits the body; `response_type=None` omits response content.
@@ -98,5 +98,6 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   document. HTTP methods are case-insensitive. Use distinct model names and
   `operation_id` values to resolve conflicts.
 
-The tests validate generated documents against OpenAPI 3.1. Validate custom
-schemas and direct edits before use.
+Custom schema hooks follow msgspec's rules: return a schema dictionary or `True`
+for an unconstrained schema. The tests validate generated documents against
+OpenAPI 3.1. Validate custom schemas and direct edits before use.
