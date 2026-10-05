@@ -8,7 +8,13 @@ from typing import Any, Literal, Optional, get_args
 
 import msgspec
 
-from defspec._schema import SchemaHook, _parameters, _schema_for_type, get_def_doc
+from defspec._schema import (
+    SchemaHook,
+    _parameter_model,
+    _parameters,
+    _schema_for_type,
+    get_def_doc,
+)
 from defspec.models import (
     DEFAULT_CONTENT_TYPE,
     ClientCredentialsOAuthFlow,
@@ -225,8 +231,36 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             ("cookie", cookie_type),
             ("path", path_type),
         ):
-            if type_ is not None:
-                parameters.extend(_parameters(type_, location, components, schema_hook))
+            if type_ is None:
+                continue
+            model = _parameter_model(
+                _schema_for_type(type_, components, schema_hook), components
+            )
+            if location == "path" and not (
+                isinstance(model, dict)
+                and model.get("type") == "object"
+                and "properties" in model
+            ):
+                raise ValueError(
+                    "path_type must be a model whose fields match the URL placeholders."
+                )
+            items = _parameters(type_, location, model)
+            if location == "path":
+                for param in items:
+                    param.required = True
+            elif location == "header":
+                reserved = [
+                    param.name
+                    for param in items
+                    if param.name.lower() in ("accept", "content-type", "authorization")
+                ]
+                if reserved:
+                    raise ValueError(
+                        f"Cannot define reserved header parameters: {', '.join(sorted(reserved))}. "
+                        "Use security schemes for Authorization and media types for "
+                        "Accept and Content-Type."
+                    )
+            parameters.extend(items)
         path_parameters = {
             param.name for param in parameters if param.located_in == "path"
         }

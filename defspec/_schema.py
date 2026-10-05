@@ -128,12 +128,9 @@ def _schema_for_type(
 def _parameters(
     type_: Any,
     location: ParameterLocation,
-    components: dict[str, Schema],
-    schema_hook: Optional[SchemaHook],
+    model: Schema,
 ) -> list[OpenAPIParam]:
-    model = _parameter_model(
-        _schema_for_type(type_, components, schema_hook), components
-    )
+    """Build named parameters from a resolved schema and its defaults."""
     if (
         isinstance(model, dict)
         and model.get("type") == "object"
@@ -141,11 +138,11 @@ def _parameters(
     ):
         required = model.get("required", [])
         # Copy fields separately: hooks may reuse a schema dictionary.
-        parameters = [
+        return [
             OpenAPIParam(
                 name=name,
                 located_in=location,
-                required=location == "path" or name in required,
+                required=name in required,
                 schema=deepcopy(field),
                 description=(field.get("description") or msgspec.UNSET)
                 if isinstance(field, dict)
@@ -153,35 +150,17 @@ def _parameters(
             )
             for name, field in model["properties"].items()
         ]
-    elif location == "path":
+    name = getattr(type_, "__name__", None)
+    # Python 3.14 gives unions the generic name "Union".
+    if name is None or get_origin(type_) in (Union, UnionType):
         raise ValueError(
-            "path_type must be a model whose fields match the URL placeholders."
+            f"{location}_type has no parameter name; use a model with named fields."
         )
-    else:
-        name = getattr(type_, "__name__", None)
-        # Python 3.14 gives unions the generic name "Union".
-        if name is None or get_origin(type_) in (Union, UnionType):
-            raise ValueError(
-                f"{location}_type has no parameter name; use a model with named fields."
-            )
-        parameters = [
-            OpenAPIParam(
-                name=name,
-                located_in=location,
-                schema=deepcopy(model),
-                description=get_def_doc(type_) or msgspec.UNSET,
-            )
-        ]
-    if location == "header":
-        reserved = [
-            param.name
-            for param in parameters
-            if param.name.lower() in ("accept", "content-type", "authorization")
-        ]
-        if reserved:
-            raise ValueError(
-                f"Cannot define reserved header parameters: {', '.join(sorted(reserved))}. "
-                "Use security schemes for Authorization and media types for "
-                "Accept and Content-Type."
-            )
-    return parameters
+    return [
+        OpenAPIParam(
+            name=name,
+            located_in=location,
+            schema=deepcopy(model),
+            description=get_def_doc(type_) or msgspec.UNSET,
+        )
+    ]
