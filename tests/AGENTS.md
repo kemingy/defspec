@@ -4,3 +4,4 @@
 - Preserve OpenAPI 3.1 validation and JSON round-trip checks in snapshot tests.
 - Update snapshots only for intended output changes. Format JSON with `msgspec.json.format(api.to_json(), indent=2)` and review the fixture diff.
 - Snapshot comparison ignores object key order and schema `required`/`enum` order. Preserve the order of other arrays and literal values in defaults, constants, and examples.
+- Normalize only OpenAPI schema locations; user-defined names can match schema keywords. Compare JSON values so Booleans remain distinct from numbers.

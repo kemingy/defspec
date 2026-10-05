@@ -4,8 +4,9 @@ from typing import Literal
 import msgspec
 import pytest
 
-from defspec import OpenAPI
+from defspec import OpenAPI, OpenAPIComponent, SecuritySchemeOAuth2
 from defspec.models import OpenAPIRequestBody
+from defspec.spec import ImplicitOAuthFlow, OAuthFlow
 from tests import helpers
 
 
@@ -141,5 +142,99 @@ def test_snapshot_preserves_media_example_array_order(snapshot_path):
     media["example"] = {"schema": {"required": ["first", "second"]}}
     snapshot_path.write_bytes(api.to_json())
     media["example"]["schema"]["required"].reverse()
+    with pytest.raises(AssertionError):
+        helpers.assert_snapshot(api, "document")
+
+
+def test_snapshot_accepts_schema_keywords_as_oauth_scope_names(snapshot_path):
+    api = OpenAPI(
+        components=OpenAPIComponent(
+            security_schemes={
+                "oauth": SecuritySchemeOAuth2(
+                    OAuthFlow(
+                        implicit=ImplicitOAuthFlow(
+                            "https://example.com/auth",
+                            scopes={
+                                "schema": "Read a schema",
+                                "schemas": "Read schemas",
+                            },
+                        )
+                    )
+                )
+            }
+        )
+    )
+    snapshot_path.write_bytes(api.to_json())
+    helpers.assert_snapshot(api, "document")
+
+
+@pytest.mark.parametrize("name", ["schema", "schemas", "example", "x-header"])
+@pytest.mark.parametrize("use_content", [False, True])
+def test_snapshot_normalizes_encoding_header_schemas_only(
+    snapshot_path, name, use_content
+):
+    class Payload:
+        pass
+
+    api = OpenAPI()
+    api.register_route(
+        "/",
+        "post",
+        request_type=Payload,
+        request_content_type="multipart/form-data",
+        schema_hook=lambda _: {
+            "type": "object",
+            "properties": {"part": {"type": "string"}},
+        },
+    )
+    schema = {
+        "type": "object",
+        "properties": {
+            "first": {"enum": ["red", "blue"]},
+            "second": {"type": "string"},
+        },
+        "required": ["first", "second"],
+    }
+    literal = {"required": ["first", "second"]}
+    header = (
+        {"content": {"application/json": {"schema": schema, "example": literal}}}
+        if use_content
+        else {"schema": schema, "example": literal}
+    )
+    body = api.paths["/"]["post"].request_body
+    assert isinstance(body, OpenAPIRequestBody)
+    body.content["multipart/form-data"]["encoding"] = {
+        "part": {"headers": {name: header}}
+    }
+    snapshot_path.write_bytes(api.to_json())
+    schema["required"].reverse()
+    schema["properties"]["first"]["enum"].reverse()
+    helpers.assert_snapshot(api, "document")
+    literal["required"].reverse()
+    with pytest.raises(AssertionError):
+        helpers.assert_snapshot(api, "document")
+
+
+@pytest.mark.parametrize(
+    "keyword,original,replacement",
+    [
+        ("enum", [1], [True]),
+        ("enum", [0], [False]),
+        ("const", 1, True),
+        ("default", 0, False),
+        ("examples", [1], [True]),
+    ],
+)
+def test_snapshot_distinguishes_booleans_from_numbers(
+    snapshot_path, keyword, original, replacement
+):
+    class Payload:
+        pass
+
+    schema = {keyword: original}
+    api = OpenAPI()
+    api.register_route("/", "post", request_type=Payload, schema_hook=lambda _: schema)
+    snapshot_path.write_bytes(api.to_json())
+    schema[keyword] = replacement
     with pytest.raises(AssertionError):
         helpers.assert_snapshot(api, "document")

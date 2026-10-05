@@ -1,12 +1,14 @@
 """Shared document validation and JSON snapshot assertions."""
 
+from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import msgspec
 from openapi_spec_validator import OpenAPIV31SpecValidator
 
 from defspec import OpenAPI
+from defspec.spec import HTTP_METHODS
 
 _SNAPSHOTS = Path(__file__).parent / "snapshots"
 
@@ -25,7 +27,13 @@ def valid_document(api: OpenAPI) -> dict[str, Any]:
 
 def assert_snapshot(api: OpenAPI, name: str) -> None:
     expected = msgspec.json.decode((_SNAPSHOTS / f"{name}.json").read_bytes())
-    assert _normalize_document(valid_document(api)) == _normalize_document(expected)
+    actual = msgspec.json.encode(
+        _normalize_document(valid_document(api)), order="deterministic"
+    )
+    expected = msgspec.json.encode(_normalize_document(expected), order="deterministic")
+    assert (
+        msgspec.json.format(actual).decode() == msgspec.json.format(expected).decode()
+    )
 
 
 def _normalize_schema(schema: Any) -> Any:
@@ -68,21 +76,31 @@ def _normalize_schema(schema: Any) -> Any:
     return normalized
 
 
-def _normalize_document(value: Any) -> Any:
-    if isinstance(value, list):
-        return [_normalize_document(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    normalized = {}
-    for key, item in value.items():
-        if key == "schema":
-            normalized[key] = _normalize_schema(item)
-        elif key == "schemas":
-            normalized[key] = {
-                name: _normalize_schema(schema) for name, schema in item.items()
-            }
-        elif key in ("example", "examples", "value") or key.startswith("x-"):
-            normalized[key] = item
-        else:
-            normalized[key] = _normalize_document(item)
+def _normalize_schema_fields(value: dict[str, Any]) -> None:
+    """Normalize schemas in parameter, header, body and media type objects."""
+    if "schema" in value:
+        value["schema"] = _normalize_schema(value["schema"])
+    for media in value.get("content", {}).values():
+        _normalize_schema_fields(media)
+    for encoding in value.get("encoding", {}).values():
+        for header in encoding.get("headers", {}).values():
+            _normalize_schema_fields(header)
+
+
+def _normalize_document(document: dict[str, Any]) -> dict[str, Any]:
+    """Normalize schema locations emitted by defspec without changing user data."""
+    normalized = deepcopy(document)
+    schemas = normalized.get("components", {}).get("schemas", {})
+    for name, schema in schemas.items():
+        schemas[name] = _normalize_schema(schema)
+    for path in normalized.get("paths", {}).values():
+        for method in get_args(HTTP_METHODS):
+            if method not in path:
+                continue
+            operation = path[method]
+            for parameter in operation.get("parameters", []):
+                _normalize_schema_fields(parameter)
+            _normalize_schema_fields(operation.get("requestBody", {}))
+            for response in operation.get("responses", {}).values():
+                _normalize_schema_fields(response)
     return normalized
