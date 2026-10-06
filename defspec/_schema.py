@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import inspect
 import sys
 from collections.abc import Callable
@@ -56,6 +57,9 @@ def _scalar_parameter_type(type_: Any) -> Optional[Any]:
 def _own_doc(type_: Any) -> str:
     """Get a docstring defined on the type itself rather than inherited."""
     doc = getattr(type_, "__dict__", {}).get("__doc__")
+    # Python 3.10 sets this placeholder on enums without a docstring.
+    if isinstance(type_, enum.EnumMeta) and doc == "An enumeration.":
+        return ""
     return inspect.cleandoc(doc) if isinstance(doc, str) else ""
 
 
