@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import enum
+import sys
 import uuid
 from typing import Annotated, Literal, NewType, Optional, Union, get_args
 
@@ -74,6 +75,22 @@ def test_user_defined_scalar_parameters(type_, name, description):
     (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
     assert parameter["name"] == name
     assert parameter.get("description") == description
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="Python 3.10 uses this text as an automatic enum docstring",
+)
+def test_explicit_enum_docstring_matching_old_placeholder_is_preserved():
+    class Documented(enum.Enum):
+        """An enumeration."""
+
+        RED = "red"
+
+    api = OpenAPI()
+    api.register_route("/", "get", query_type=Documented)
+    (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
+    assert parameter["description"] == "An enumeration."
 
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])

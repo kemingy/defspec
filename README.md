@@ -81,10 +81,10 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   field name. Wrap unions such as `int | str` in a model. Defaults make
   fields optional unless the schema requires them.
   Path fields are always required and must exactly match the route placeholders.
-- Field constraints and descriptions are preserved, and parameter schemas are
-  copied independently. Object constraints that cannot be expanded, such as
-  `allOf`, `dependentRequired`, `additionalProperties`, `$id`/`$defs`, or
-  explicit model-level `title`/`description` annotations, are rejected.
+- Field constraints and descriptions are preserved; parameter schemas are copied
+  independently. Model titles, descriptions, and `forbid_unknown_fields` are ignored
+  during expansion. Constraints that cannot be expanded raise `ValueError`, including
+  `additionalProperties: false` annotations that forbid declared fields.
 - Header names `Authorization`, `Accept`, and `Content-Type` are rejected regardless
   of case. Use security schemes and request/response content types instead.
 - `request_type=None` omits the body; `response_type=None` omits response content.

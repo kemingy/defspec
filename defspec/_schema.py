@@ -28,9 +28,8 @@ __MSGSPEC_STRUCT_DOC__ = inspect.getdoc(msgspec.Struct)
 
 _REF_PREFIX = "#/components/schemas/"
 _STRUCTURE = {"type", "properties", "required", "$comment"}
-# Model-level metadata has no place on separate parameters, and
-# `additionalProperties: false` (msgspec's forbid_unknown_fields) cannot be
-# expressed by them either, so both are dropped.
+# Model metadata and unknown-field rejection cannot be represented by separate
+# parameters. Only drop additionalProperties: false if it allows every model field.
 _IGNORED = {"title", "description", "additionalProperties"}
 _RESERVED_HEADERS = ("accept", "content-type", "authorization")
 
@@ -58,7 +57,11 @@ def _own_doc(type_: Any) -> str:
     """Get a docstring defined on the type itself rather than inherited."""
     doc = getattr(type_, "__dict__", {}).get("__doc__")
     # Python 3.10 sets this placeholder on enums without a docstring.
-    if isinstance(type_, enum.EnumMeta) and doc == "An enumeration.":
+    if (
+        sys.version_info < (3, 11)
+        and isinstance(type_, enum.EnumMeta)
+        and doc == "An enumeration."
+    ):
         return ""
     return inspect.cleandoc(doc) if isinstance(doc, str) else ""
 
@@ -112,18 +115,20 @@ def _intersect_schemas(base: Schema, constraint: Schema) -> Schema:
 
 def _check_model(schema: dict[str, Any], fields: dict[str, Any]) -> None:
     """Reject constraints that cannot be represented by separate parameters."""
+    properties = schema.get("properties", {})
     unsupported = schema.keys() - _STRUCTURE - _IGNORED
     if schema.get("type", "object") != "object":
         unsupported.add("type")
-    if schema.get("additionalProperties", False) is not False:
+    if schema.get("additionalProperties", False) is not False or (
+        schema.get("additionalProperties") is False
+        and fields.keys() - properties.keys()
+    ):
         unsupported.add("additionalProperties")
     if unsupported:
         raise ValueError(
             f"Cannot expand parameter model constraints: {', '.join(sorted(unsupported))}."
         )
-    undeclared = (
-        schema.get("properties", {}).keys() | set(schema.get("required", []))
-    ) - fields.keys()
+    undeclared = (properties.keys() | set(schema.get("required", []))) - fields.keys()
     if undeclared:
         raise ValueError(
             "Cannot expand parameter model constraints for undeclared fields: "

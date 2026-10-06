@@ -124,6 +124,60 @@ def test_forbid_unknown_fields_model_is_expanded(location):
     assert [param["name"] for param in parameters] == ["value"]
 
 
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
+@pytest.mark.parametrize("properties", [None, {}, {"token": {}}])
+def test_closed_sibling_schema_restricting_model_fields_is_rejected_atomically(
+    location, properties
+):
+    class Parameters(msgspec.Struct):
+        token: str
+        limit: int = 20
+
+    constraints = {"additionalProperties": False}
+    if properties is not None:
+        constraints["properties"] = properties
+    constrained = Annotated[Parameters, msgspec.Meta(extra_json_schema=constraints)]
+    api = OpenAPI()
+    api.register_route("/", "get")
+    before = api.to_dict()
+    path = "/{token}/{limit}" if location == "path" else "/"
+    with pytest.raises(
+        ValueError, match="parameter model constraints: additionalProperties"
+    ):
+        api.register_route(
+            path, "get", request_type=Parameters, **{f"{location}_type": constrained}
+        )
+    assert api.to_dict() == before
+
+
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
+def test_closed_sibling_schema_preserving_all_model_fields_is_expanded(location):
+    class Parameters(msgspec.Struct):
+        token: str
+        limit: int = 20
+
+    constrained = Annotated[
+        Parameters,
+        msgspec.Meta(
+            extra_json_schema={
+                "properties": {"token": {}, "limit": {"minimum": 5}},
+                "additionalProperties": False,
+            }
+        ),
+    ]
+    api = OpenAPI()
+    path = "/{token}/{limit}" if location == "path" else "/"
+    api.register_route(path, "get", **{f"{location}_type": constrained})
+    token, limit = valid_document(api)["paths"][path]["get"]["parameters"]
+    assert [token["name"], limit["name"]] == ["token", "limit"]
+    assert token["required"] is True
+    assert limit["required"] is (location == "path")
+    validator = OAS31Validator(limit["schema"])
+    assert validator.is_valid(5)
+    assert not validator.is_valid(4)
+    assert not validator.is_valid("5")
+
+
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])
 def test_array_like_model_is_rejected_atomically(location):
     class Parameters(msgspec.Struct, array_like=True):
