@@ -74,49 +74,65 @@ def test_parameter_model_siblings_preserve_constraints(location, minimum):
         msgspec.Meta(extra_json_schema={"title": "Model-level title"}),
     ],
 )
-def test_unrepresentable_model_metadata_is_rejected_atomically(location, source, meta):
+def test_model_metadata_is_ignored(location, source, meta):
     class Parameters(msgspec.Struct):
         value: int
 
     class Custom:
         pass
 
-    model = {"type": "object", "properties": {"value": {"type": "integer"}}}
+    model = {
+        "type": "object",
+        "title": "Custom",
+        "description": "Inline model description",
+        "properties": {"value": {"type": "integer"}},
+        "required": ["value"],
+    }
     api = OpenAPI()
-    api.register_route("/", "get")
     if source == "reference":
         api.components.schemas["Custom"] = model
-    before = api.to_dict()
     type_ = Parameters if source == "native" else Custom
     schema = {"$ref": "#/components/schemas/Custom"} if source == "reference" else model
     path = "/{value}" if location == "path" else "/"
-    with pytest.raises(ValueError, match="parameter model"):
-        api.register_route(
-            path,
-            "get",
-            request_type=Parameters,
-            schema_hook=lambda _: schema,
-            **{f"{location}_type": Annotated[type_, meta]},
-        )
-    assert api.to_dict() == before
+    api.register_route(
+        path,
+        "get",
+        request_type=Parameters,
+        schema_hook=lambda _: schema,
+        **{f"{location}_type": Annotated[type_, meta]},
+    )
+    parameters = valid_document(api)["paths"][path]["get"]["parameters"]
+    assert parameters == [
+        {
+            "name": "value",
+            "in": location,
+            "required": True,
+            "schema": {"type": "integer"},
+        }
+    ]
 
 
-@pytest.mark.parametrize("keyword", ["title", "description"])
-def test_inline_hook_model_metadata_is_rejected_atomically(keyword):
-    class Parameters:
-        pass
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
+def test_forbid_unknown_fields_model_is_expanded(location):
+    class Parameters(msgspec.Struct, forbid_unknown_fields=True):
+        value: int
 
-    model = {
-        "type": "object",
-        "properties": {"value": {"type": "integer"}},
-        keyword: "Model metadata",
-    }
+    api = OpenAPI()
+    path = "/{value}" if location == "path" else "/"
+    api.register_route(path, "get", **{f"{location}_type": Parameters})
+    parameters = valid_document(api)["paths"][path]["get"]["parameters"]
+    assert [param["name"] for param in parameters] == ["value"]
+
+
+@pytest.mark.parametrize("location", ["query", "header", "cookie"])
+def test_array_like_model_is_rejected_atomically(location):
+    class Parameters(msgspec.Struct, array_like=True):
+        value: int
+
     api = OpenAPI()
     before = api.to_dict()
-    with pytest.raises(ValueError, match="parameter model"):
-        api.register_route(
-            "/", "get", query_type=Parameters, schema_hook=lambda _: model
-        )
+    with pytest.raises(ValueError, match="parameter model without named fields"):
+        api.register_route("/", "get", **{f"{location}_type": Parameters})
     assert api.to_dict() == before
 
 
@@ -159,6 +175,7 @@ def test_boolean_sibling_constraints(field_schema):
         {"dependentRequired": {"first": ["second"]}},
         {"allOf": [{"required": ["first"]}]},
         {"type": "array"},
+        {"additionalProperties": {"type": "string"}},
         {"properties": {"unknown": {"type": "string"}}},
         {"required": ["unknown"]},
     ],
@@ -184,7 +201,7 @@ def test_unrepresentable_parameter_siblings_are_rejected_atomically(constraints)
     [
         {"dependentRequired": {"first": ["second"]}},
         {"allOf": [{"required": ["first"]}]},
-        {"additionalProperties": False},
+        {"additionalProperties": {"type": "string"}},
         {
             "$id": "https://example.com/parameters",
             "$defs": {"Value": {"type": "string"}},

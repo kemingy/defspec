@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional, Union, get_args
+import datetime
+import enum
+import uuid
+from typing import Annotated, Literal, NewType, Optional, Union, get_args
 
 import msgspec
 import pytest
@@ -31,13 +34,70 @@ def test_parameter_defaults_and_encoded_names(location):
     assert parameters[1]["schema"]["default"] == default_limit
 
 
+class Color(enum.Enum):
+    """Preferred color."""
+
+    RED = "red"
+
+
+class Undocumented(enum.Enum):
+    RED = "red"
+
+
+UserId = NewType("UserId", int)
+
+
+class Token:
+    """Opaque access token."""
+
+
 @pytest.mark.parametrize(
-    "type_", [Literal["a", "b"], list[int], Annotated[int, msgspec.Meta(ge=1)]]
+    "type_,name,description",
+    [
+        pytest.param(Color, "Color", "Preferred color.", id="enum"),
+        pytest.param(Undocumented, "Undocumented", None, id="undocumented-enum"),
+        pytest.param(UserId, "UserId", None, id="newtype"),
+        pytest.param(
+            Annotated[UserId, msgspec.Meta(ge=1, description="User ID")],
+            "UserId",
+            "User ID",
+            id="annotated-newtype",
+        ),
+        pytest.param(Token, "Token", "Opaque access token.", id="hook-class"),
+    ],
 )
-def test_inline_parameter_schemas(type_):
+def test_user_defined_scalar_parameters(type_, name, description):
     api = OpenAPI()
-    api.register_route("/", "get", query_type=type_)
-    valid_document(api)
+    api.register_route(
+        "/", "get", query_type=type_, schema_hook=lambda _: {"type": "string"}
+    )
+    (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
+    assert parameter["name"] == name
+    assert parameter.get("description") == description
+
+
+@pytest.mark.parametrize("location", ["query", "header", "cookie"])
+@pytest.mark.parametrize(
+    "type_",
+    [
+        int,
+        str,
+        datetime.datetime,
+        uuid.UUID,
+        list[int],
+        dict[str, int],
+        Literal["a", "b"],
+        Annotated[int, msgspec.Meta(ge=1)],
+        Annotated[int | str, msgspec.Meta(description="Value")],
+    ],
+)
+def test_builtin_and_typing_parameters_are_rejected_atomically(location, type_):
+    api = OpenAPI()
+    api.register_route("/", "get")
+    before = api.to_dict()
+    with pytest.raises(ValueError, match=f"{location}_type has no parameter name"):
+        api.register_route("/", "get", **{f"{location}_type": type_})
+    assert api.to_dict() == before
 
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])

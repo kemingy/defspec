@@ -10,9 +10,8 @@ import msgspec
 
 from defspec._schema import (
     SchemaHook,
-    _parameter_model,
-    _parameters,
-    _schema_for_type,
+    _add_schema,
+    _build_parameters,
     get_def_doc,
 )
 from defspec.models import (
@@ -169,6 +168,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         """Add or replace an endpoint in the OpenAPI document, with a 200 response.
 
         Each field in a query, header, cookie, or path model becomes a named parameter.
+        A user-defined scalar type, such as an Enum or NewType, becomes one parameter
+        named after the type.
         Fields with defaults are optional unless the schema requires them. Path fields
         must match the URL placeholders and are always required. Parameter schemas are
         copied so editing a parameter does not change a shared body schema.
@@ -185,9 +186,9 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             request_content_type: Request media type; defaults to application/json.
             response_type: Type of the response body, or None for no response content.
             response_content_type: Response media type; defaults to application/json.
-            query_type: Model with query fields, or a named scalar type.
-            header_type: Model with header fields, or a named scalar type.
-            cookie_type: Model with cookie fields, or a named scalar type.
+            query_type: Model with query fields, or a user-defined scalar type.
+            header_type: Model with header fields, or a user-defined scalar type.
+            cookie_type: Model with cookie fields, or a user-defined scalar type.
             deprecated: Mark this endpoint as deprecated.
             schema_hook: Function that describes types msgspec does not recognize.
                 Return a schema dictionary or True for an unconstrained schema.
@@ -209,7 +210,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         components = self.components.schemas.copy()
         request_body = (
             OpenAPIRequestBody.with_schema_content_type(
-                _schema_for_type(request_type, components, schema_hook),
+                _add_schema(request_type, components, schema_hook),
                 request_content_type,
             )
             if request_type is not None
@@ -217,7 +218,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         )
         response = (
             OpenAPIResponse.with_schema_content_type(
-                _schema_for_type(response_type, components, schema_hook),
+                _add_schema(response_type, components, schema_hook),
                 response_content_type,
             )
             if response_type is not None
@@ -233,34 +234,9 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         ):
             if type_ is None:
                 continue
-            model = _parameter_model(
-                _schema_for_type(type_, components, schema_hook), components
+            parameters.extend(
+                _build_parameters(type_, location, components, schema_hook)
             )
-            if location == "path" and not (
-                isinstance(model, dict)
-                and model.get("type") == "object"
-                and "properties" in model
-            ):
-                raise ValueError(
-                    "path_type must be a model whose fields match the URL placeholders."
-                )
-            items = _parameters(type_, location, model)
-            if location == "path":
-                for param in items:
-                    param.required = True
-            elif location == "header":
-                reserved = [
-                    param.name
-                    for param in items
-                    if param.name.lower() in ("accept", "content-type", "authorization")
-                ]
-                if reserved:
-                    raise ValueError(
-                        f"Cannot define reserved header parameters: {', '.join(sorted(reserved))}. "
-                        "Use security schemes for Authorization and media types for "
-                        "Accept and Content-Type."
-                    )
-            parameters.extend(items)
         path_parameters = {
             param.name for param in parameters if param.located_in == "path"
         }
