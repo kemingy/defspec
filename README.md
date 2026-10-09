@@ -82,7 +82,8 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   in a model. Named scalars, such as `int` or `UUID`, use the type name as the parameter
   name. Defaults make non-path fields optional unless the schema requires them.
   Path fields must match the URL placeholders and cannot have defaults or default
-  factories. Each placeholder must have a unique name.
+  factories. TypedDict path keys must be required. Each placeholder must have a
+  unique name.
 - Field constraints and descriptions are preserved; parameter schemas are copied
   independently. Model titles, descriptions, and `forbid_unknown_fields` are ignored
   during expansion. Constraints that cannot be expanded raise `ValueError`, including

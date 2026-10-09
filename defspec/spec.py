@@ -175,10 +175,12 @@ class OpenAPI(msgspec.Struct, kw_only=True):
 
         Each field in a query, header, cookie, or path model becomes a named parameter.
         A named scalar type, such as int, UUID, an Enum, or a NewType, becomes one parameter
-        named after the type.
+        named after the type. Native scalar docstrings are omitted; use msgspec.Meta
+        to provide a description.
         Fields with defaults are optional unless the schema requires them. Path fields
         must match the URL placeholders and cannot have defaults or default factories,
         because a URL placeholder cannot be missing.
+        TypedDict path keys must be required; use Required[...] for optional keys.
         Generated struct tags are omitted from parameters. Parameter schemas are
         copied so editing a parameter does not change a shared body schema.
 

@@ -5,7 +5,7 @@ import datetime
 import enum
 import sys
 import uuid
-from typing import Annotated, Literal, NewType, Optional, Union, get_args
+from typing import Annotated, Literal, NewType, Optional, TypedDict, Union, get_args
 
 import attrs
 import msgspec
@@ -15,6 +15,11 @@ from openapi_schema_validator import OAS31Validator
 from defspec import OpenAPI, OpenAPIComponent
 from defspec.spec import ParameterLocation
 from tests.helpers import PathParameters, valid_document
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired, Required
+else:
+    from typing_extensions import NotRequired, Required
 
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])
@@ -114,6 +119,35 @@ def test_named_builtin_and_stdlib_scalar_parameters(location, type_, name, schem
     assert parameter["in"] == location
     assert parameter["required"] is True
     assert parameter["schema"] == schema
+    assert "description" not in parameter
+
+
+@pytest.mark.parametrize("location", ["query", "header", "cookie"])
+@pytest.mark.parametrize("type_", [int, datetime.datetime, uuid.UUID])
+def test_explicit_native_scalar_descriptions_are_preserved(location, type_):
+    description = "Value supplied by the client"
+    api = OpenAPI()
+    api.register_route(
+        "/",
+        "get",
+        **{f"{location}_type": Annotated[type_, msgspec.Meta(description=description)]},
+    )
+    (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
+    assert parameter["description"] == description
+    assert parameter["schema"]["description"] == description
+
+
+def test_hook_scalar_description_takes_precedence_over_type_docstring():
+    description = "Token supplied by the client"
+    api = OpenAPI()
+    api.register_route(
+        "/",
+        "get",
+        query_type=Token,
+        schema_hook=lambda _: {"type": "string", "description": description},
+    )
+    (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
+    assert parameter["description"] == description
 
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])
@@ -135,7 +169,7 @@ def test_unnamed_typing_parameters_are_rejected_atomically(location, type_):
     assert api.to_dict() == before
 
 
-@pytest.mark.parametrize("module", ["test", "email", "code"])
+@pytest.mark.parametrize("module", ["test", "email", "code", "builtins"])
 @pytest.mark.parametrize("type_", [Color, UserId])
 def test_scalar_parameter_names_are_independent_of_module_names(
     monkeypatch, module, type_
@@ -145,6 +179,9 @@ def test_scalar_parameter_names_are_independent_of_module_names(
     api.register_route("/", "get", query_type=type_)
     (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
     assert parameter["name"] == type_.__name__
+    assert parameter.get("description") == (
+        "Preferred color." if type_ is Color else None
+    )
 
 
 @pytest.mark.parametrize("location", get_args(ParameterLocation))
@@ -555,6 +592,82 @@ def test_path_unset_defaults_are_rejected():
     with pytest.raises(ValueError, match="path_type fields must not have defaults: id"):
         api.register_route("/{id}", "get", path_type=Path)
     assert api.to_dict() == before
+
+
+@pytest.mark.parametrize("source", ["total_false", "not_required", "inherited"])
+@pytest.mark.parametrize("wrapper", ["plain", "annotated", "newtype"])
+def test_optional_typed_dict_path_keys_are_rejected_atomically(source, wrapper):
+    if source == "total_false":
+        model = TypedDict("Path", {"id": int}, total=False)
+    elif source == "not_required":
+        model = TypedDict("Path", {"id": NotRequired[int]})
+    else:
+
+        class Base(TypedDict, total=False):
+            id: int
+
+        class Path(Base):
+            pass
+
+        model = Path
+    path_type = (
+        Annotated[model, msgspec.Meta(extra_json_schema={"required": ["id"]})]
+        if wrapper == "annotated"
+        else NewType("PathAlias", model)
+        if wrapper == "newtype"
+        else model
+    )
+    api = OpenAPI()
+    api.register_route(
+        "/{id}",
+        "post",
+        path_type=PathParameters,
+        request_type=model,
+        response_type=model,
+        query_type=model,
+        header_type=model,
+        cookie_type=model,
+    )
+    before = valid_document(api)
+    query, header, cookie, _ = before["paths"]["/{id}"]["post"]["parameters"]
+    assert all(not parameter["required"] for parameter in (query, header, cookie))
+    with pytest.raises(ValueError) as error:
+        api.register_route("/{id}", "post", path_type=path_type)
+    message = str(error.value)
+    assert "path_type TypedDict keys must be required: id" in message
+    assert "Required[...]" in message
+    assert "total=True" in message
+    assert valid_document(api) == before
+
+
+@pytest.mark.parametrize("source", ["total_true", "required", "inherited"])
+@pytest.mark.parametrize("wrapper", ["plain", "annotated", "newtype"])
+def test_required_typed_dict_path_keys_are_allowed(source, wrapper):
+    if source == "total_true":
+        model = TypedDict("Path", {"id": int})
+    elif source == "required":
+        model = TypedDict("Path", {"id": Required[int]}, total=False)
+    else:
+
+        class Base(TypedDict):
+            id: int
+
+        class Path(Base, total=False):
+            pass
+
+        model = Path
+    path_type = (
+        Annotated[model, msgspec.Meta(description="Path parameters")]
+        if wrapper == "annotated"
+        else NewType("PathAlias", model)
+        if wrapper == "newtype"
+        else model
+    )
+    api = OpenAPI()
+    api.register_route("/{id}", "get", path_type=path_type)
+    (parameter,) = valid_document(api)["paths"]["/{id}"]["get"]["parameters"]
+    assert parameter["required"] is True
+    assert parameter["schema"] == {"type": "integer"}
 
 
 def test_nullable_path_fields_without_defaults_are_allowed():

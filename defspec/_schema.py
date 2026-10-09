@@ -52,7 +52,12 @@ def _scalar_parameter_type(type_: Any) -> Optional[Any]:
 
 
 def _own_doc(type_: Any) -> str:
-    """Get a docstring defined on the type itself rather than inherited."""
+    """Get an Enum or custom scalar's own docstring."""
+    if not isinstance(
+        msgspec.inspect.type_info(type_),
+        (msgspec.inspect.EnumType, msgspec.inspect.CustomType),
+    ):
+        return ""
     doc = getattr(type_, "__dict__", {}).get("__doc__")
     # Python 3.10 sets this placeholder on enums without a docstring.
     if (
@@ -209,8 +214,8 @@ def _build_parameters(
             info.tag_field if isinstance(info, msgspec.inspect.StructType) else None
         )
         if location == "path":
-            # msgspec marks defaults, including UNSET and factories, as optional.
-            defaults = (
+            # msgspec reports optional fields for defaults and optional TypedDict keys.
+            optional_fields = (
                 {field.encode_name for field in info.fields if not field.required}
                 if isinstance(
                     info,
@@ -218,15 +223,22 @@ def _build_parameters(
                         msgspec.inspect.StructType,
                         msgspec.inspect.DataclassType,
                         msgspec.inspect.NamedTupleType,
+                        msgspec.inspect.TypedDictType,
                     ),
                 )
                 else set()
             )
-            defaults.update(
+            if optional_fields and isinstance(info, msgspec.inspect.TypedDictType):
+                raise ValueError(
+                    f"path_type TypedDict keys must be required: {', '.join(sorted(optional_fields))}. "
+                    "URL placeholders must be supplied. Declare these keys with Required[...], "
+                    "or use total=True and remove NotRequired[...]."
+                )
+            defaults = optional_fields | {
                 name
                 for name, field in model["properties"].items()
                 if name != tag_field and _has_schema_default(field, components)
-            )
+            }
             if defaults:
                 raise ValueError(
                     f"path_type fields must not have defaults: {', '.join(sorted(defaults))}. "
