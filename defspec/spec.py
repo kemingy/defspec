@@ -121,17 +121,23 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     def __post_init__(self):
         if not re.fullmatch(r"3\.(1|2)\.\d+", self.openapi):
             raise ValueError("Only OpenAPI 3.1.x and 3.2.x are supported.")
+        for routes in self.paths.values():
+            for method in routes:
+                self._check_method(method)
 
     @property
     def defs(self) -> dict[str, Schema]:
         """Compatibility alias for components.schemas; never serialized as $defs."""
         return self.components.schemas
 
-    def _check_route(self, path: str, method: str, operation_id: str) -> frozenset[str]:
+    def _check_method(self, method: str) -> None:
         if method not in get_args(HTTP_METHODS) or (
             method == "query" and self.openapi.startswith("3.1.")
         ):
             raise ValueError(f"Unsupported OpenAPI {self.openapi} method: {method!r}")
+
+    def _check_route(self, path: str, method: str, operation_id: str) -> frozenset[str]:
+        self._check_method(method)
         if not path.startswith("/") or "?" in path or "#" in path:
             raise ValueError(
                 "Paths must start with '/' and omit queries and fragments."

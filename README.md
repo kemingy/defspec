@@ -82,6 +82,9 @@ openapi = OpenAPI(openapi="3.1.0")
 
 The existing model, parameter, and security APIs work with both versions.
 OpenAPI 3.2 also accepts `method="QUERY"` with a request body; 3.1 rejects it.
+Construction and JSON decoding reject operations unsupported by the selected
+version, including `query` in 3.1. Operation keys in supplied `paths` must use
+lowercase names; `register_route` accepts methods in any letter case.
 Custom HTTP methods (`additionalOperations`), whole-query-string parameters,
 and streaming item schemas do not yet have dedicated generation APIs.
 

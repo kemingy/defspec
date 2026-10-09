@@ -190,6 +190,39 @@ def test_query_method_requires_32(method):
     assert api.to_dict() == before
 
 
+@pytest.mark.parametrize("version", ["3.1.0", "3.1.2", "3.2.0", "3.2.1"])
+@pytest.mark.parametrize("method", ["get", "query", "connect"])
+def test_constructor_and_decode_validate_methods(version, method):
+    source = OpenAPI()
+    source.register_route("/search", "get")
+    operation = source.paths["/search"]["get"]
+    paths = {"/search": {method: operation}}
+    document = source.to_dict() | {
+        "openapi": version,
+        "paths": {"/search": {method: source.to_dict()["paths"]["/search"]["get"]}},
+    }
+    encoded = msgspec.json.encode(document)
+    if method == "connect" or (method == "query" and version.startswith("3.1.")):
+        with pytest.raises(ValueError, match="Unsupported OpenAPI"):
+            OpenAPI(openapi=version, paths=paths)
+        with pytest.raises(msgspec.ValidationError, match="Unsupported OpenAPI"):
+            msgspec.json.decode(encoded, type=OpenAPI)
+    else:
+        constructed = OpenAPI(openapi=version, paths=paths)
+        decoded = msgspec.json.decode(encoded, type=OpenAPI)
+        assert valid_document(constructed) == document
+        assert valid_document(decoded) == document
+
+
+def test_registration_checks_method_after_version_change():
+    api = OpenAPI()
+    api.openapi = "3.1.0"
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="Unsupported OpenAPI 3.1"):
+        api.register_route("/search", "query", request_type=int)
+    assert api.to_dict() == before
+
+
 def test_query_and_post_coexist_after_decode():
     api = OpenAPI()
     api.register_route("/search", "post", request_type=str)
