@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import enum
 import sys
 import uuid
 from typing import Annotated, Literal, NewType, Optional, Union, get_args
 
+import attrs
 import msgspec
 import pytest
 from openapi_schema_validator import OAS31Validator
@@ -154,7 +156,11 @@ def test_tagged_parameter_models_omit_only_the_generated_tag(
     class Parameters(
         msgspec.Struct, tag=tag, tag_field=tag_field, forbid_unknown_fields=True
     ):
-        value: int = msgspec.field(name="id", default=1)
+        value: int = (
+            msgspec.field(name="id")
+            if location == "path"
+            else msgspec.field(name="id", default=1)
+        )
 
     type_ = (
         Annotated[Parameters, msgspec.Meta(description="Parameter model")]
@@ -181,7 +187,9 @@ def test_tagged_parameter_models_omit_only_the_generated_tag(
     assert component["properties"][tag_field]["enum"] == [
         Parameters.__struct_config__.tag
     ]
-    assert component["required"] == [tag_field]
+    assert component["required"] == (
+        [tag_field, "id"] if location == "path" else [tag_field]
+    )
     assert msgspec.convert({"id": 2}, type=type_) == Parameters(value=2)
 
 
@@ -423,8 +431,13 @@ def test_path_parameters_are_always_required():
 
 
 @pytest.mark.parametrize("type_,default", [(int, 1), (Optional[int], None)])
-def test_path_defaults_are_omitted_only_from_parameter_schemas(type_, default):
-    model = msgspec.defstruct("Path", [("id", type_, default)])
+@pytest.mark.parametrize("wrapper", ["plain", "annotated", "newtype"])
+def test_path_defaults_are_rejected_without_changing_other_locations(
+    type_, default, wrapper
+):
+    model = msgspec.defstruct(
+        "Path", [("value", type_, msgspec.field(name="id", default=default))]
+    )
     api = OpenAPI()
     api.register_route(
         "/users/{id}",
@@ -434,7 +447,7 @@ def test_path_defaults_are_omitted_only_from_parameter_schemas(type_, default):
         query_type=model,
         header_type=model,
         cookie_type=model,
-        path_type=model,
+        path_type=PathParameters,
     )
     document = valid_document(api)
     query, header, cookie, path = document["paths"]["/users/{id}"]["post"]["parameters"]
@@ -443,17 +456,28 @@ def test_path_defaults_are_omitted_only_from_parameter_schemas(type_, default):
     for parameter in (query, header, cookie):
         assert parameter["required"] is False
         assert parameter["schema"] == original
-    expected = original.copy()
-    expected.pop("default")
-    assert path["schema"] == expected
     assert original["default"] == default
-    assert model().id == default
-    assert OAS31Validator(path["schema"]).is_valid(default)
+    assert model().value == default
+    path_type = (
+        Annotated[model, msgspec.Meta(extra_json_schema={"required": ["id"]})]
+        if wrapper == "annotated"
+        else NewType("PathAlias", model)
+        if wrapper == "newtype"
+        else model
+    )
+    with pytest.raises(ValueError) as error:
+        api.register_route(
+            "/users/{id}", "post", request_type=model, path_type=path_type
+        )
+    message = str(error.value)
+    assert "path_type fields must not have defaults: id" in message
+    assert "Remove the default, default_factory, or schema default" in message
+    assert "'id: int' instead of 'id: int = 1'" in message
+    assert valid_document(api) == document
 
 
-def test_path_defaults_are_omitted_from_intersected_constraints():
-    default = 5
-    model = msgspec.defstruct("Path", [("id", int, default)])
+def test_path_schema_defaults_are_rejected_in_annotated_constraints():
+    model = msgspec.defstruct("Path", [("id", int)])
     constrained = Annotated[
         model,
         msgspec.Meta(
@@ -466,37 +490,93 @@ def test_path_defaults_are_omitted_from_intersected_constraints():
         "get",
         request_type=model,
         query_type=constrained,
-        path_type=constrained,
+        path_type=PathParameters,
     )
     document = valid_document(api)
-    query, path = document["paths"]["/{id}"]["get"]["parameters"]
+    query, _ = document["paths"]["/{id}"]["get"]["parameters"]
     assert query["schema"]["allOf"] == [
-        {"type": "integer", "default": default},
+        {"type": "integer"},
         {"minimum": 2, "default": 3},
     ]
-    assert path["schema"]["allOf"] == [{"type": "integer"}, {"minimum": 2}]
-    assert path["required"] is True
-    assert (
-        document["components"]["schemas"]["Path"]["properties"]["id"]["default"]
-        == default
+    with pytest.raises(ValueError, match="path_type fields must not have defaults: id"):
+        api.register_route("/{id}", "get", path_type=constrained)
+    assert valid_document(api) == document
+
+
+def test_path_defaults_in_referenced_schemas_are_rejected():
+    class Parameters:
+        pass
+
+    model = {
+        "type": "object",
+        "properties": {"id": {"$ref": "#/components/schemas/Value"}},
+    }
+    api = OpenAPI(
+        components=OpenAPIComponent(
+            schemas={"Value": {"type": "integer", "default": 1}}
+        )
     )
-    validator = OAS31Validator(path["schema"])
-    assert validator.is_valid(2)
-    assert not validator.is_valid(1)
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="path_type fields must not have defaults: id"):
+        api.register_route(
+            "/{id}", "get", path_type=Parameters, schema_hook=lambda _: model
+        )
+    assert api.to_dict() == before
 
 
-def test_path_default_removal_preserves_defaults_inside_nested_values():
+@pytest.mark.parametrize("kind", ["struct", "dataclass", "attrs"])
+def test_path_default_factories_are_rejected(kind):
+    def factory():
+        pytest.fail("Default factories must not be called during schema generation")
+
+    if kind == "struct":
+        model = msgspec.defstruct(
+            "Path", [("id", int, msgspec.field(default_factory=factory))]
+        )
+    elif kind == "dataclass":
+        model = dataclasses.make_dataclass(
+            "Path", [("id", int, dataclasses.field(default_factory=factory))]
+        )
+    else:
+        model = attrs.make_class("Path", {"id": attrs.field(type=int, factory=factory)})
+    api = OpenAPI()
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="path_type fields must not have defaults: id"):
+        api.register_route("/{id}", "get", path_type=model)
+    assert api.to_dict() == before
+
+
+def test_path_unset_defaults_are_rejected():
+    class Path(msgspec.Struct):
+        id: Union[int, msgspec.UnsetType] = msgspec.UNSET
+
+    api = OpenAPI()
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="path_type fields must not have defaults: id"):
+        api.register_route("/{id}", "get", path_type=Path)
+    assert api.to_dict() == before
+
+
+def test_nullable_path_fields_without_defaults_are_allowed():
+    model = msgspec.defstruct("Path", [("id", Optional[int])])
+    api = OpenAPI()
+    api.register_route("/{id}", "get", path_type=model)
+    (path,) = valid_document(api)["paths"]["/{id}"]["get"]["parameters"]
+    assert path["required"] is True
+    assert OAS31Validator(path["schema"]).is_valid(None)
+
+
+def test_defaults_inside_nested_path_values_are_allowed():
     default = 5
     nested = msgspec.defstruct("Nested", [("value", int, default)], frozen=True)
-    model = msgspec.defstruct("Path", [("id", nested, nested())])
+    model = msgspec.defstruct("Path", [("id", nested)])
     api = OpenAPI()
     api.register_route(
         "/{id}", "get", request_type=model, query_type=model, path_type=model
     )
     document = valid_document(api)
     query, path = document["paths"]["/{id}"]["get"]["parameters"]
-    assert query["schema"]["default"] == {"value": default}
-    assert path["schema"] == {"$ref": "#/components/schemas/Nested"}
+    assert query["schema"] == path["schema"] == {"$ref": "#/components/schemas/Nested"}
     assert (
         document["components"]["schemas"]["Nested"]["properties"]["value"]["default"]
         == default
@@ -506,7 +586,7 @@ def test_path_default_removal_preserves_defaults_inside_nested_values():
 @pytest.mark.parametrize(
     "keyword", ["allOf", "anyOf", "oneOf", "if", "then", "else", "not"]
 )
-def test_path_defaults_are_omitted_without_changing_nested_schemas_or_literal_data(
+def test_path_schema_defaults_are_rejected_but_nested_defaults_and_literal_data_are_allowed(
     keyword,
 ):
     class Parameters:
@@ -521,24 +601,23 @@ def test_path_defaults_are_omitted_without_changing_nested_schemas_or_literal_da
     }
     child = {"default": {"default": 1}, **nested}
     field = {
-        "default": {"default": 2 if keyword == "not" else 1},
         keyword: [child] if keyword in ("allOf", "anyOf", "oneOf") else child,
     }
     model = {"type": "object", "properties": {"id": field}}
     api = OpenAPI()
-    api.register_route(
-        "/{id}",
-        "get",
-        query_type=Parameters,
-        path_type=Parameters,
-        schema_hook=lambda _: model,
-    )
-    query, path = valid_document(api)["paths"]["/{id}"]["get"]["parameters"]
-    assert query["schema"] == field
-    assert path["schema"] == {
-        keyword: [nested] if keyword in ("allOf", "anyOf", "oneOf") else nested
-    }
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="path_type fields must not have defaults: id"):
+        api.register_route(
+            "/{id}", "get", path_type=Parameters, schema_hook=lambda _: model
+        )
+    assert api.to_dict() == before
     assert child["default"] == {"default": 1}
+    child.pop("default")
+    api.register_route(
+        "/{id}", "get", path_type=Parameters, schema_hook=lambda _: model
+    )
+    (path,) = valid_document(api)["paths"]["/{id}"]["get"]["parameters"]
+    assert path["schema"] == field
 
 
 def test_missing_path_model_error_explains_how_to_supply_it():

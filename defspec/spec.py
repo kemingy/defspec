@@ -177,8 +177,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         A named scalar type, such as int, UUID, an Enum, or a NewType, becomes one parameter
         named after the type.
         Fields with defaults are optional unless the schema requires them. Path fields
-        must match the URL placeholders and are always required. Their schema defaults
-        are omitted because a URL placeholder cannot be missing.
+        must match the URL placeholders and cannot have defaults or default factories,
+        because a URL placeholder cannot be missing.
         Generated struct tags are omitted from parameters. Parameter schemas are
         copied so editing a parameter does not change a shared body schema.
 

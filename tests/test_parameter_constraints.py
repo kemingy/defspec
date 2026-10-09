@@ -16,7 +16,9 @@ from tests.helpers import valid_document
 def test_parameter_model_siblings_preserve_constraints(location, minimum):
     class Parameters(msgspec.Struct):
         token: str
-        limit: Annotated[int, msgspec.Meta(ge=5)] = 20
+        limit: Annotated[int, msgspec.Meta(ge=5)] = (
+            msgspec.field() if location == "path" else 20
+        )
 
     constrained = Annotated[
         Parameters,
@@ -51,15 +53,16 @@ def test_parameter_model_siblings_preserve_constraints(location, minimum):
     assert not validator.is_valid("10")
     # Parameter annotations must not change the shared request body schema.
     model = document["components"]["schemas"]["Parameters"]
-    assert model["required"] == ["token"]
-    assert model["properties"]["limit"] == {
-        "type": "integer",
-        "minimum": 5,
-        "default": 20,
-    }
+    assert model["required"] == (
+        ["token", "limit"] if location == "path" else ["token"]
+    )
+    expected = {"type": "integer", "minimum": 5}
+    if location != "path":
+        expected["default"] = 20
+    assert model["properties"]["limit"] == expected
     api.register_route("/unconstrained", "get", query_type=Parameters)
     parameters = valid_document(api)["paths"]["/unconstrained"]["get"]["parameters"]
-    assert parameters[1]["required"] is False
+    assert parameters[1]["required"] is (location == "path")
     assert "maximum" not in parameters[1]["schema"]
 
 
@@ -154,7 +157,7 @@ def test_closed_sibling_schema_restricting_model_fields_is_rejected_atomically(
 def test_closed_sibling_schema_preserving_all_model_fields_is_expanded(location):
     class Parameters(msgspec.Struct):
         token: str
-        limit: int = 20
+        limit: int = msgspec.field() if location == "path" else 20
 
     constrained = Annotated[
         Parameters,

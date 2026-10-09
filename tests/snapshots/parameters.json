@@ -113,11 +113,12 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "integer",
-            "default": 1
+            "type": "integer"
           }
         },
-        "required": []
+        "required": [
+          "id"
+        ]
       }
     }
   },

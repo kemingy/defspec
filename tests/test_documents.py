@@ -212,7 +212,7 @@ def test_recursive_shared_and_discriminated_schemas():
 
 def test_parameter_document():
     class Path(msgspec.Struct):
-        item_id: int = msgspec.field(name="id", default=1)
+        item_id: int = msgspec.field(name="id")
 
     class Query(msgspec.Struct):
         limit: Annotated[int, msgspec.Meta(ge=1, description="Maximum items")] = 10

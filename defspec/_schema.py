@@ -171,17 +171,26 @@ def _parameter_model(schema: Schema, components: dict[str, Schema]) -> Schema:
     }
 
 
-def _remove_path_defaults(schema: Schema) -> None:
-    """Remove defaults for the whole path value, preserving nested value defaults."""
-    if not isinstance(schema, dict):
-        return
-    schema.pop("default", None)
-    for keyword in ("allOf", "anyOf", "oneOf"):
-        for child in schema.get(keyword, []):
-            _remove_path_defaults(child)
-    for keyword in ("if", "then", "else", "not"):
-        if keyword in schema:
-            _remove_path_defaults(schema[keyword])
+def _has_schema_default(schema: Schema, components: dict[str, Schema]) -> bool:
+    """Check defaults for the whole value, excluding nested values and literal data."""
+    schemas = [schema]
+    visited: set[str] = set()
+    while schemas:
+        schema = schemas.pop()
+        if not isinstance(schema, dict):
+            continue
+        if "default" in schema:
+            return True
+        reference = schema.get("$ref", "")
+        if reference.startswith(_REF_PREFIX) and reference not in visited:
+            visited.add(reference)
+            schemas.append(components.get(reference.removeprefix(_REF_PREFIX), False))
+        for keyword in ("allOf", "anyOf", "oneOf"):
+            schemas.extend(schema.get(keyword, []))
+        for keyword in ("if", "then", "else", "not"):
+            if keyword in schema:
+                schemas.append(schema[keyword])
+    return False
 
 
 def _build_parameters(
@@ -199,6 +208,32 @@ def _build_parameters(
         tag_field = (
             info.tag_field if isinstance(info, msgspec.inspect.StructType) else None
         )
+        if location == "path":
+            # msgspec marks defaults, including UNSET and factories, as optional.
+            defaults = (
+                {field.encode_name for field in info.fields if not field.required}
+                if isinstance(
+                    info,
+                    (
+                        msgspec.inspect.StructType,
+                        msgspec.inspect.DataclassType,
+                        msgspec.inspect.NamedTupleType,
+                    ),
+                )
+                else set()
+            )
+            defaults.update(
+                name
+                for name, field in model["properties"].items()
+                if name != tag_field and _has_schema_default(field, components)
+            )
+            if defaults:
+                raise ValueError(
+                    f"path_type fields must not have defaults: {', '.join(sorted(defaults))}. "
+                    "Remove the default, default_factory, or schema default from these fields. "
+                    "URL placeholders must be supplied; for example, use 'id: int' "
+                    "instead of 'id: int = 1'."
+                )
         required = model.get("required", [])
         # Copy fields separately: hooks may reuse a schema dictionary.
         parameters = [
@@ -237,10 +272,7 @@ def _build_parameters(
             )
         ]
 
-    if location == "path":
-        for parameter in parameters:
-            _remove_path_defaults(parameter.schema)
-    elif location == "header":
+    if location == "header":
         reserved = [
             param.name
             for param in parameters

@@ -14,7 +14,7 @@ _SNAPSHOTS = Path(__file__).parent / "snapshots"
 
 
 class PathParameters(msgspec.Struct):
-    user_id: int = msgspec.field(default=1, name="id")
+    user_id: int = msgspec.field(name="id")
 
 
 def valid_document(api: OpenAPI) -> dict[str, Any]:
