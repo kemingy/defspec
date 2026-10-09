@@ -3,6 +3,7 @@ from typing import Literal
 
 import msgspec
 import pytest
+from jsonschema.exceptions import SchemaError
 
 from defspec import OpenAPI, OpenAPIComponent, SecuritySchemeOAuth2
 from defspec.models import OpenAPIRequestBody
@@ -14,6 +15,19 @@ from tests import helpers
 def snapshot_path(tmp_path, monkeypatch):
     monkeypatch.setattr(helpers, "_SNAPSHOTS", tmp_path)
     return tmp_path / "document.json"
+
+
+@pytest.mark.parametrize("method", ["post", "query"])
+def test_document_validation_checks_schema_objects(method):
+    api = OpenAPI()
+    api.register_route("/search", "post", request_type=str)
+    api.register_route("/search", "query", request_type=int)
+    helpers.valid_document(api)
+    body = api.paths["/search"][method].request_body
+    assert isinstance(body, OpenAPIRequestBody)
+    body.content["application/json"]["schema"] = {"type": "invalid"}
+    with pytest.raises(SchemaError):
+        helpers.valid_document(api)
 
 
 @pytest.mark.parametrize("referenced", [False, True])

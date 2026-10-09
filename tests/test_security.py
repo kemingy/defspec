@@ -69,7 +69,7 @@ def test_operation_security_overrides():
     assert valid_document(api)["paths"]["/explicit"]["get"]["security"] == []
 
 
-def test_oauth_document():
+def test_oauth_document(openapi_version):
     flows = OAuthFlow(
         authorization_code=OAuthFlowAuthorizationCode(
             "https://example.com/auth",
@@ -82,6 +82,7 @@ def test_oauth_document():
         client_credentials=ClientCredentialsOAuthFlow("https://example.com/token"),
     )
     api = OpenAPI(
+        openapi=openapi_version,
         components=OpenAPIComponent(
             security_schemes={"oauth": SecuritySchemeOAuth2(flows)}
         ),

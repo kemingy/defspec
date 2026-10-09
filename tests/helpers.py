@@ -5,9 +5,11 @@ from pathlib import Path
 from typing import Any, get_args
 
 import msgspec
-from openapi_spec_validator import OpenAPIV31SpecValidator
+from openapi_schema_validator import OAS31Validator, OAS32Validator
+from openapi_spec_validator import OpenAPIV31SpecValidator, OpenAPIV32SpecValidator
 
 from defspec import OpenAPI
+from defspec.models import OpenAPIRequestBody
 from defspec.spec import HTTP_METHODS
 
 _SNAPSHOTS = Path(__file__).parent / "snapshots"
@@ -19,7 +21,20 @@ class PathParameters(msgspec.Struct):
 
 def valid_document(api: OpenAPI) -> dict[str, Any]:
     document = api.to_dict()
-    OpenAPIV31SpecValidator(document).validate()
+    if api.openapi.startswith("3.2."):
+        OpenAPIV32SpecValidator(document).validate()
+        schema_validator = OAS32Validator
+    else:
+        OpenAPIV31SpecValidator(document).validate()
+        schema_validator = OAS31Validator
+    # openapi-spec-validator checks response/component schemas but skips inline
+    # request-body schemas. Use its companion validator to cover those too.
+    for routes in api.paths.values():
+        for operation in routes.values():
+            if isinstance(operation.request_body, OpenAPIRequestBody):
+                for media in operation.request_body.content.values():
+                    if "schema" in media:
+                        schema_validator.check_schema(media["schema"])
     assert msgspec.json.decode(api.to_json()) == document
     assert msgspec.json.decode(api.to_json(), type=OpenAPI).to_dict() == document
     return document
@@ -27,6 +42,9 @@ def valid_document(api: OpenAPI) -> dict[str, Any]:
 
 def assert_snapshot(api: OpenAPI, name: str) -> None:
     expected = msgspec.json.decode((_SNAPSHOTS / f"{name}.json").read_bytes())
+    # Compare the same document under both versions, preserving 3.1 coverage.
+    if api.openapi.startswith("3.1."):
+        expected["openapi"] = api.openapi
     actual = msgspec.json.encode(
         _normalize_document(valid_document(api)), order="deterministic"
     )

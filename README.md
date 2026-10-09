@@ -72,7 +72,21 @@ openapi.serve_as_http_daemon(port=8000, run_in_background=True)
 
 ## OpenAPI compatibility
 
-DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
+Starting with DefSpec **0.7**, the default is **OpenAPI 3.2.0**.
+Both **3.2.x** and **3.1.x** are supported. To keep generating 3.1 documents for
+existing consumers:
+
+```python
+openapi = OpenAPI(openapi="3.1.0")
+```
+
+The existing model, parameter, and security APIs work with both versions.
+OpenAPI 3.2 also accepts `method="QUERY"` with a request body; 3.1 rejects it.
+Construction and JSON decoding reject operations unsupported by the selected
+version, including `query` in 3.1. Operation keys in supplied `paths` must use
+lowercase names; `register_route` accepts methods in any letter case.
+Custom HTTP methods (`additionalOperations`), whole-query-string parameters,
+and streaming item schemas do not yet have dedicated generation APIs.
 
 - Models use `components.schemas` and `#/components/schemas/...` references.
   When migrating, update saved `$defs` references. The `defs=` constructor argument
@@ -103,4 +117,10 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
 
 Custom schema hooks follow msgspec's rules: return a schema dictionary or `True`
 for an unconstrained schema. The tests validate generated documents against
-OpenAPI 3.1. Validate custom schemas and direct edits before use.
+both supported versions with `openapi-spec-validator`, including JSON round
+trips. Validate custom schemas and direct edits before use. Swagger UI and
+ReDoc are pinned to releases that accept OpenAPI 3.2 documents.
+Use Swagger UI or Scalar for `QUERY` operations;
+ReDoc 2.5.3 renders ordinary operations but omits `QUERY`. Offline renderer and
+client generator compatibility depends on the upstream version. Select 3.1
+when your consumer requires it.

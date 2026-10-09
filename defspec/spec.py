@@ -88,12 +88,14 @@ def _parse_path(path: str) -> tuple[str, frozenset[str]]:
 
 
 HTTP_METHODS = Literal[
-    "get", "post", "put", "delete", "head", "options", "trace", "patch"
+    "get", "post", "put", "delete", "head", "options", "trace", "patch", "query"
 ]
 
 
 class OpenAPI(msgspec.Struct, kw_only=True):
     """OpenAPI specification.
+
+    Defaults to OpenAPI 3.2.0. Pass openapi="3.1.0" for 3.1 consumers.
 
     Usage:
         >>> openapi = OpenAPI()
@@ -108,7 +110,7 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         >>> )
     """
 
-    openapi: str = "3.1.0"
+    openapi: str = "3.2.0"
     info: OpenAPIInfo = msgspec.field(default_factory=OpenAPIInfo)
     paths: dict[str, dict[str, OpenAPIRoute]] = msgspec.field(
         default_factory=lambda: defaultdict(dict)
@@ -117,17 +119,25 @@ class OpenAPI(msgspec.Struct, kw_only=True):
     security: list[dict[str, list[str]]] = msgspec.field(default_factory=list)
 
     def __post_init__(self):
-        if not re.fullmatch(r"3\.1\.\d+", self.openapi):
-            raise ValueError("Only OpenAPI 3.1.x is supported.")
+        if not re.fullmatch(r"3\.(1|2)\.\d+", self.openapi):
+            raise ValueError("Only OpenAPI 3.1.x and 3.2.x are supported.")
+        for routes in self.paths.values():
+            for method in routes:
+                self._check_method(method)
 
     @property
     def defs(self) -> dict[str, Schema]:
         """Compatibility alias for components.schemas; never serialized as $defs."""
         return self.components.schemas
 
+    def _check_method(self, method: str) -> None:
+        if method not in get_args(HTTP_METHODS) or (
+            method == "query" and self.openapi.startswith("3.1.")
+        ):
+            raise ValueError(f"Unsupported OpenAPI {self.openapi} method: {method!r}")
+
     def _check_route(self, path: str, method: str, operation_id: str) -> frozenset[str]:
-        if method not in get_args(HTTP_METHODS):
-            raise ValueError(f"Unsupported OpenAPI 3.1 method: {method!r}")
+        self._check_method(method)
         if not path.startswith("/") or "?" in path or "#" in path:
             raise ValueError(
                 "Paths must start with '/' and omit queries and fragments."
@@ -191,7 +201,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
 
         Args:
             path: Endpoint URL, such as /users/{id}.
-            method: HTTP method in any letter case. CONNECT is unsupported.
+            method: HTTP method in any letter case. QUERY requires OpenAPI 3.2.
+                CONNECT and custom methods are unsupported.
             summary: Short description shown in the API documentation.
             request_type: Type of the request body, or None to omit it.
             request_content_type: Request media type; defaults to application/json.
