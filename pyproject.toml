@@ -38,7 +38,7 @@ distribution = true
 source = "scm"
 fallback_version = "0.0.0"
 write_to = "defspec/__version__.py"
-write_template = "__version__ = '{}'"
+write_template = "__version__ = \"{}\"\n"
 
 [tool.ruff]
 target-version = "py310"
@@ -54,6 +54,7 @@ max-args = 12
 dev = [
     "attrs>=23.2.0",
     "mypy>=1.16.1",
+    "openapi-spec-validator>=0.7.2,<0.8",
     "prek>=0.1.4",
     "pytest>=7.4.4",
     "ruff>=0.11.11",

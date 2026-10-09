@@ -161,5 +161,6 @@ cython_debug/
 
 .ruff_cache/
 *.json
+!tests/snapshots/*.json
 *.html
 defspec/__version__.py
