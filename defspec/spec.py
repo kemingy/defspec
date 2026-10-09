@@ -174,10 +174,11 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         """Add or replace an endpoint in the OpenAPI document, with a 200 response.
 
         Each field in a query, header, cookie, or path model becomes a named parameter.
-        A user-defined scalar type, such as an Enum or NewType, becomes one parameter
+        A named scalar type, such as int, UUID, an Enum, or a NewType, becomes one parameter
         named after the type.
         Fields with defaults are optional unless the schema requires them. Path fields
-        must match the URL placeholders and are always required, even with defaults.
+        must match the URL placeholders and are always required. Their schema defaults
+        are omitted because a URL placeholder cannot be missing.
         Generated struct tags are omitted from parameters. Parameter schemas are
         copied so editing a parameter does not change a shared body schema.
 
@@ -193,9 +194,9 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             request_content_type: Request media type; defaults to application/json.
             response_type: Type of the response body, or None for no response content.
             response_content_type: Response media type; defaults to application/json.
-            query_type: Model with query fields, or a user-defined scalar type.
-            header_type: Model with header fields, or a user-defined scalar type.
-            cookie_type: Model with cookie fields, or a user-defined scalar type.
+            query_type: Model with query fields, or a named scalar type.
+            header_type: Model with header fields, or a named scalar type.
+            cookie_type: Model with cookie fields, or a named scalar type.
             deprecated: Mark this endpoint as deprecated.
             schema_hook: Function that describes types msgspec does not recognize.
                 Return a schema dictionary or True for an unconstrained schema.

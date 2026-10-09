@@ -5,10 +5,8 @@ from __future__ import annotations
 import enum
 import inspect
 import sys
-import sysconfig
 from collections.abc import Callable
 from copy import deepcopy
-from pathlib import Path
 from typing import (
     Annotated,
     Any,
@@ -34,10 +32,6 @@ _STRUCTURE = {"type", "properties", "required", "$comment"}
 # parameters. Only drop additionalProperties: false if it allows every model field.
 _IGNORED = {"title", "description", "additionalProperties"}
 _RESERVED_HEADERS = ("accept", "content-type", "authorization")
-_STDLIB_PATHS = (
-    Path(sysconfig.get_path("stdlib")).resolve(),
-    Path(sysconfig.get_path("platstdlib")).resolve(),
-)
 
 
 def get_def_doc(obj: Any) -> str:
@@ -48,23 +42,12 @@ def get_def_doc(obj: Any) -> str:
 
 
 def _scalar_parameter_type(type_: Any) -> Optional[Any]:
-    """Return the user-defined type a scalar parameter is named after, if any."""
+    """Return the concrete type a scalar parameter is named after, if any."""
     if get_origin(type_) is Annotated:
         type_ = get_args(type_)[0]
     # Generic aliases, unions, and literals are named after their typing construct.
     if get_origin(type_) is not None or not isinstance(type_, (type, NewType)):
         return None
-    if type_.__module__.partition(".")[0] in sys.stdlib_module_names:
-        module = sys.modules.get(type_.__module__)
-        origin = getattr(getattr(module, "__spec__", None), "origin", None)
-        if origin in ("built-in", "frozen"):
-            return None
-        if origin is not None:
-            path = Path(origin).resolve()
-            if not any(
-                part in ("site-packages", "dist-packages") for part in path.parts
-            ) and any(path.is_relative_to(directory) for directory in _STDLIB_PATHS):
-                return None
     return type_
 
 
@@ -188,6 +171,19 @@ def _parameter_model(schema: Schema, components: dict[str, Schema]) -> Schema:
     }
 
 
+def _remove_path_defaults(schema: Schema) -> None:
+    """Remove defaults for the whole path value, preserving nested value defaults."""
+    if not isinstance(schema, dict):
+        return
+    schema.pop("default", None)
+    for keyword in ("allOf", "anyOf", "oneOf"):
+        for child in schema.get(keyword, []):
+            _remove_path_defaults(child)
+    for keyword in ("if", "then", "else", "not"):
+        if keyword in schema:
+            _remove_path_defaults(schema[keyword])
+
+
 def _build_parameters(
     type_: Any,
     location: ParameterLocation,
@@ -227,7 +223,7 @@ def _build_parameters(
         if named is None:
             raise ValueError(
                 f"{location}_type has no parameter name; use a model with named "
-                "fields or a user-defined type such as an Enum or NewType."
+                "fields or a named type such as an Enum or NewType."
             )
         description = (
             model.get("description") if isinstance(model, dict) else None
@@ -241,7 +237,10 @@ def _build_parameters(
             )
         ]
 
-    if location == "header":
+    if location == "path":
+        for parameter in parameters:
+            _remove_path_defaults(parameter.schema)
+    elif location == "header":
         reserved = [
             param.name
             for param in parameters

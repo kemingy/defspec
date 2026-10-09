@@ -79,9 +79,10 @@ DefSpec supports **OpenAPI 3.1.x** (3.1.0 by default).
   is removed; `openapi.defs` remains an alias for `openapi.components.schemas`.
 - Query, header, cookie, and path models expand into one parameter per encoded
   field name; generated msgspec tags are omitted. Wrap unions such as `int | str`
-  in a model. Defaults make non-path fields optional unless the schema requires them.
-  Path fields are always required, even with defaults, and must match the URL
-  placeholders. Each placeholder must have a unique name.
+  in a model. Named scalars, such as `int` or `UUID`, use the type name as the parameter
+  name. Defaults make non-path fields optional unless the schema requires them.
+  Path fields are always required and omit schema defaults. They must match the URL
+  placeholders, and each placeholder must have a unique name.
 - Field constraints and descriptions are preserved; parameter schemas are copied
   independently. Model titles, descriptions, and `forbid_unknown_fields` are ignored
   during expansion. Constraints that cannot be expanded raise `ValueError`, including

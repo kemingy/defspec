@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime
 import enum
-import importlib.util
 import sys
 import uuid
 from typing import Annotated, Literal, NewType, Optional, Union, get_args
@@ -11,7 +10,7 @@ import msgspec
 import pytest
 from openapi_schema_validator import OAS31Validator
 
-from defspec import OpenAPI, OpenAPIComponent, _schema
+from defspec import OpenAPI, OpenAPIComponent
 from defspec.spec import ParameterLocation
 from tests.helpers import PathParameters, valid_document
 
@@ -96,20 +95,36 @@ def test_explicit_enum_docstring_matching_old_placeholder_is_preserved():
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])
 @pytest.mark.parametrize(
+    "type_,name,schema",
+    [
+        (int, "int", {"type": "integer"}),
+        (str, "str", {"type": "string"}),
+        (datetime.datetime, "datetime", {"type": "string"}),
+        (uuid.UUID, "UUID", {"type": "string", "format": "uuid"}),
+        (Annotated[int, msgspec.Meta(ge=1)], "int", {"type": "integer", "minimum": 1}),
+    ],
+)
+def test_named_builtin_and_stdlib_scalar_parameters(location, type_, name, schema):
+    api = OpenAPI()
+    api.register_route("/", "get", **{f"{location}_type": type_})
+    (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
+    assert parameter["name"] == name
+    assert parameter["in"] == location
+    assert parameter["required"] is True
+    assert parameter["schema"] == schema
+
+
+@pytest.mark.parametrize("location", ["query", "header", "cookie"])
+@pytest.mark.parametrize(
     "type_",
     [
-        int,
-        str,
-        datetime.datetime,
-        uuid.UUID,
         list[int],
         dict[str, int],
         Literal["a", "b"],
-        Annotated[int, msgspec.Meta(ge=1)],
         Annotated[int | str, msgspec.Meta(description="Value")],
     ],
 )
-def test_builtin_and_typing_parameters_are_rejected_atomically(location, type_):
+def test_unnamed_typing_parameters_are_rejected_atomically(location, type_):
     api = OpenAPI()
     api.register_route("/", "get")
     before = api.to_dict()
@@ -118,42 +133,16 @@ def test_builtin_and_typing_parameters_are_rejected_atomically(location, type_):
     assert api.to_dict() == before
 
 
-@pytest.mark.parametrize("package", ["test", "email", "code"])
-@pytest.mark.parametrize("name", ["Color", "UserId"])
-@pytest.mark.parametrize("installed", [False, True])
-def test_user_scalar_types_in_packages_named_after_stdlib_are_accepted(
-    tmp_path, monkeypatch, package, name, installed
+@pytest.mark.parametrize("module", ["test", "email", "code"])
+@pytest.mark.parametrize("type_", [Color, UserId])
+def test_scalar_parameter_names_are_independent_of_module_names(
+    monkeypatch, module, type_
 ):
-    source = (
-        tmp_path / "lib" / "site-packages" / "user_models.py"
-        if installed
-        else tmp_path / "user_models.py"
-    )
-    source.parent.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(_schema, "_STDLIB_PATHS", (tmp_path / "lib",))
-    source.write_text(
-        "from enum import Enum\n"
-        "from typing import NewType\n"
-        "class Color(Enum):\n"
-        "    RED = 'red'\n"
-        "UserId = NewType('UserId', int)\n"
-    )
-    module_name = f"{package}.user_models"
-    spec = importlib.util.spec_from_file_location(module_name, source)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, module_name, module)
-    spec.loader.exec_module(module)
+    monkeypatch.setattr(type_, "__module__", module)
     api = OpenAPI()
-    api.register_route("/", "get", query_type=getattr(module, name))
-    document = valid_document(api)
-    (parameter,) = document["paths"]["/"]["get"]["parameters"]
-    assert parameter["name"] == name
-    validator = OAS31Validator(
-        {**parameter["schema"], "components": document["components"]}
-    )
-    assert validator.is_valid("red" if name == "Color" else 1)
-    assert not validator.is_valid([])
+    api.register_route("/", "get", query_type=type_)
+    (parameter,) = valid_document(api)["paths"]["/"]["get"]["parameters"]
+    assert parameter["name"] == type_.__name__
 
 
 @pytest.mark.parametrize("location", get_args(ParameterLocation))
@@ -434,22 +423,122 @@ def test_path_parameters_are_always_required():
 
 
 @pytest.mark.parametrize("type_,default", [(int, 1), (Optional[int], None)])
-def test_path_defaults_preserve_the_schema_without_making_the_parameter_optional(
-    type_, default
-):
+def test_path_defaults_are_omitted_only_from_parameter_schemas(type_, default):
     model = msgspec.defstruct("Path", [("id", type_, default)])
     api = OpenAPI()
     api.register_route(
-        "/users/{id}", "post", request_type=model, query_type=model, path_type=model
+        "/users/{id}",
+        "post",
+        request_type=model,
+        response_type=model,
+        query_type=model,
+        header_type=model,
+        cookie_type=model,
+        path_type=model,
     )
     document = valid_document(api)
-    query, path = document["paths"]["/users/{id}"]["post"]["parameters"]
-    assert query["required"] is False
+    query, header, cookie, path = document["paths"]["/users/{id}"]["post"]["parameters"]
     assert path["required"] is True
     original = document["components"]["schemas"]["Path"]["properties"]["id"]
-    assert query["schema"] == path["schema"] == original
+    for parameter in (query, header, cookie):
+        assert parameter["required"] is False
+        assert parameter["schema"] == original
+    expected = original.copy()
+    expected.pop("default")
+    assert path["schema"] == expected
     assert original["default"] == default
+    assert model().id == default
     assert OAS31Validator(path["schema"]).is_valid(default)
+
+
+def test_path_defaults_are_omitted_from_intersected_constraints():
+    default = 5
+    model = msgspec.defstruct("Path", [("id", int, default)])
+    constrained = Annotated[
+        model,
+        msgspec.Meta(
+            extra_json_schema={"properties": {"id": {"minimum": 2, "default": 3}}}
+        ),
+    ]
+    api = OpenAPI()
+    api.register_route(
+        "/{id}",
+        "get",
+        request_type=model,
+        query_type=constrained,
+        path_type=constrained,
+    )
+    document = valid_document(api)
+    query, path = document["paths"]["/{id}"]["get"]["parameters"]
+    assert query["schema"]["allOf"] == [
+        {"type": "integer", "default": default},
+        {"minimum": 2, "default": 3},
+    ]
+    assert path["schema"]["allOf"] == [{"type": "integer"}, {"minimum": 2}]
+    assert path["required"] is True
+    assert (
+        document["components"]["schemas"]["Path"]["properties"]["id"]["default"]
+        == default
+    )
+    validator = OAS31Validator(path["schema"])
+    assert validator.is_valid(2)
+    assert not validator.is_valid(1)
+
+
+def test_path_default_removal_preserves_defaults_inside_nested_values():
+    default = 5
+    nested = msgspec.defstruct("Nested", [("value", int, default)], frozen=True)
+    model = msgspec.defstruct("Path", [("id", nested, nested())])
+    api = OpenAPI()
+    api.register_route(
+        "/{id}", "get", request_type=model, query_type=model, path_type=model
+    )
+    document = valid_document(api)
+    query, path = document["paths"]["/{id}"]["get"]["parameters"]
+    assert query["schema"]["default"] == {"value": default}
+    assert path["schema"] == {"$ref": "#/components/schemas/Nested"}
+    assert (
+        document["components"]["schemas"]["Nested"]["properties"]["value"]["default"]
+        == default
+    )
+
+
+@pytest.mark.parametrize(
+    "keyword", ["allOf", "anyOf", "oneOf", "if", "then", "else", "not"]
+)
+def test_path_defaults_are_omitted_without_changing_nested_schemas_or_literal_data(
+    keyword,
+):
+    class Parameters:
+        pass
+
+    nested = {
+        "properties": {"default": {"type": "integer", "default": 1}},
+        "items": {"type": "integer", "default": 1},
+        "enum": [{"default": 1}],
+        "const": {"default": 1},
+        "examples": [{"default": 1}],
+    }
+    child = {"default": {"default": 1}, **nested}
+    field = {
+        "default": {"default": 2 if keyword == "not" else 1},
+        keyword: [child] if keyword in ("allOf", "anyOf", "oneOf") else child,
+    }
+    model = {"type": "object", "properties": {"id": field}}
+    api = OpenAPI()
+    api.register_route(
+        "/{id}",
+        "get",
+        query_type=Parameters,
+        path_type=Parameters,
+        schema_hook=lambda _: model,
+    )
+    query, path = valid_document(api)["paths"]["/{id}"]["get"]["parameters"]
+    assert query["schema"] == field
+    assert path["schema"] == {
+        keyword: [nested] if keyword in ("allOf", "anyOf", "oneOf") else nested
+    }
+    assert child["default"] == {"default": 1}
 
 
 def test_missing_path_model_error_explains_how_to_supply_it():
