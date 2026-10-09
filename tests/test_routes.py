@@ -52,6 +52,16 @@ def test_invalid_routes(path, method):
     assert not api.paths
 
 
+@pytest.mark.parametrize("path", ["/a/{id}/{id}", "/a/{id}{id}"])
+def test_repeated_path_placeholders_are_rejected_atomically(path):
+    api = OpenAPI()
+    api.register_route("/", "get")
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="Repeated placeholder.*different name"):
+        api.register_route(path, "get", path_type=PathParameters)
+    assert api.to_dict() == before
+
+
 def test_equivalent_path_templates_are_rejected():
     @dataclass
     class OtherPath:

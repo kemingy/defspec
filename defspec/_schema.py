@@ -5,8 +5,10 @@ from __future__ import annotations
 import enum
 import inspect
 import sys
+import sysconfig
 from collections.abc import Callable
 from copy import deepcopy
+from pathlib import Path
 from typing import (
     Annotated,
     Any,
@@ -32,6 +34,10 @@ _STRUCTURE = {"type", "properties", "required", "$comment"}
 # parameters. Only drop additionalProperties: false if it allows every model field.
 _IGNORED = {"title", "description", "additionalProperties"}
 _RESERVED_HEADERS = ("accept", "content-type", "authorization")
+_STDLIB_PATHS = (
+    Path(sysconfig.get_path("stdlib")).resolve(),
+    Path(sysconfig.get_path("platstdlib")).resolve(),
+)
 
 
 def get_def_doc(obj: Any) -> str:
@@ -49,7 +55,16 @@ def _scalar_parameter_type(type_: Any) -> Optional[Any]:
     if get_origin(type_) is not None or not isinstance(type_, (type, NewType)):
         return None
     if type_.__module__.partition(".")[0] in sys.stdlib_module_names:
-        return None
+        module = sys.modules.get(type_.__module__)
+        origin = getattr(getattr(module, "__spec__", None), "origin", None)
+        if origin in ("built-in", "frozen"):
+            return None
+        if origin is not None:
+            path = Path(origin).resolve()
+            if not any(
+                part in ("site-packages", "dist-packages") for part in path.parts
+            ) and any(path.is_relative_to(directory) for directory in _STDLIB_PATHS):
+                return None
     return type_
 
 
@@ -182,6 +197,12 @@ def _build_parameters(
     """Build the parameters of one location, adding their definitions to `components`."""
     model = _parameter_model(_add_schema(type_, components, schema_hook), components)
     if _is_object_model(model):
+        info = msgspec.inspect.type_info(type_)
+        while isinstance(info, msgspec.inspect.Metadata):
+            info = info.type
+        tag_field = (
+            info.tag_field if isinstance(info, msgspec.inspect.StructType) else None
+        )
         required = model.get("required", [])
         # Copy fields separately: hooks may reuse a schema dictionary.
         parameters = [
@@ -195,6 +216,7 @@ def _build_parameters(
                 else msgspec.UNSET,
             )
             for name, field in model["properties"].items()
+            if name != tag_field
         ]
     elif location == "path":
         raise ValueError(

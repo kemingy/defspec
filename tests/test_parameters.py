@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import enum
+import importlib.util
 import sys
 import uuid
 from typing import Annotated, Literal, NewType, Optional, Union, get_args
@@ -10,7 +11,7 @@ import msgspec
 import pytest
 from openapi_schema_validator import OAS31Validator
 
-from defspec import OpenAPI, OpenAPIComponent
+from defspec import OpenAPI, OpenAPIComponent, _schema
 from defspec.spec import ParameterLocation
 from tests.helpers import PathParameters, valid_document
 
@@ -115,6 +116,104 @@ def test_builtin_and_typing_parameters_are_rejected_atomically(location, type_):
     with pytest.raises(ValueError, match=f"{location}_type has no parameter name"):
         api.register_route("/", "get", **{f"{location}_type": type_})
     assert api.to_dict() == before
+
+
+@pytest.mark.parametrize("package", ["test", "email", "code"])
+@pytest.mark.parametrize("name", ["Color", "UserId"])
+@pytest.mark.parametrize("installed", [False, True])
+def test_user_scalar_types_in_packages_named_after_stdlib_are_accepted(
+    tmp_path, monkeypatch, package, name, installed
+):
+    source = (
+        tmp_path / "lib" / "site-packages" / "user_models.py"
+        if installed
+        else tmp_path / "user_models.py"
+    )
+    source.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(_schema, "_STDLIB_PATHS", (tmp_path / "lib",))
+    source.write_text(
+        "from enum import Enum\n"
+        "from typing import NewType\n"
+        "class Color(Enum):\n"
+        "    RED = 'red'\n"
+        "UserId = NewType('UserId', int)\n"
+    )
+    module_name = f"{package}.user_models"
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, module_name, module)
+    spec.loader.exec_module(module)
+    api = OpenAPI()
+    api.register_route("/", "get", query_type=getattr(module, name))
+    document = valid_document(api)
+    (parameter,) = document["paths"]["/"]["get"]["parameters"]
+    assert parameter["name"] == name
+    validator = OAS31Validator(
+        {**parameter["schema"], "components": document["components"]}
+    )
+    assert validator.is_valid("red" if name == "Color" else 1)
+    assert not validator.is_valid([])
+
+
+@pytest.mark.parametrize("location", get_args(ParameterLocation))
+@pytest.mark.parametrize("wrapper", ["plain", "annotated", "newtype"])
+@pytest.mark.parametrize("tag,tag_field", [(True, "type"), (0, "kind")])
+def test_tagged_parameter_models_omit_only_the_generated_tag(
+    location, wrapper, tag, tag_field
+):
+    class Parameters(
+        msgspec.Struct, tag=tag, tag_field=tag_field, forbid_unknown_fields=True
+    ):
+        value: int = msgspec.field(name="id", default=1)
+
+    type_ = (
+        Annotated[Parameters, msgspec.Meta(description="Parameter model")]
+        if wrapper == "annotated"
+        else NewType("ParameterAlias", Parameters)
+        if wrapper == "newtype"
+        else Parameters
+    )
+    api = OpenAPI()
+    path = "/{id}" if location == "path" else "/"
+    api.register_route(
+        path,
+        "post",
+        request_type=Parameters,
+        response_type=Parameters,
+        **{f"{location}_type": type_},
+    )
+    document = valid_document(api)
+    (parameter,) = document["paths"][path]["post"]["parameters"]
+    assert parameter["name"] == "id"
+    assert parameter["required"] is (location == "path")
+    component = document["components"]["schemas"]["Parameters"]
+    assert tag_field in component["properties"]
+    assert component["properties"][tag_field]["enum"] == [
+        Parameters.__struct_config__.tag
+    ]
+    assert component["required"] == [tag_field]
+    assert msgspec.convert({"id": 2}, type=type_) == Parameters(value=2)
+
+
+def test_normal_fields_named_type_and_nested_struct_tags_are_preserved():
+    class Payload(msgspec.Struct, tag=True):
+        value: int
+
+    Query = msgspec.defstruct(
+        "Query", [("type", Literal["user"]), ("payload", Payload)]
+    )
+
+    api = OpenAPI()
+    api.register_route("/", "get", query_type=Query)
+    document = valid_document(api)
+    type_, payload = document["paths"]["/"]["get"]["parameters"]
+    assert type_["name"] == "type"
+    assert type_["required"] is True
+    assert type_["schema"]["enum"] == ["user"]
+    assert payload["name"] == "payload"
+    assert payload["schema"] == {"$ref": "#/components/schemas/Payload"}
+    assert document["components"]["schemas"]["Payload"]["required"] == ["type", "value"]
 
 
 @pytest.mark.parametrize("location", ["query", "header", "cookie"])
@@ -332,6 +431,53 @@ def test_path_parameters_are_always_required():
     assert parameters[0]["name"] == "id"
     assert parameters[0]["in"] == "path"
     assert parameters[0]["required"] is True
+
+
+@pytest.mark.parametrize("type_,default", [(int, 1), (Optional[int], None)])
+def test_path_defaults_preserve_the_schema_without_making_the_parameter_optional(
+    type_, default
+):
+    model = msgspec.defstruct("Path", [("id", type_, default)])
+    api = OpenAPI()
+    api.register_route(
+        "/users/{id}", "post", request_type=model, query_type=model, path_type=model
+    )
+    document = valid_document(api)
+    query, path = document["paths"]["/users/{id}"]["post"]["parameters"]
+    assert query["required"] is False
+    assert path["required"] is True
+    original = document["components"]["schemas"]["Path"]["properties"]["id"]
+    assert query["schema"] == path["schema"] == original
+    assert original["default"] == default
+    assert OAS31Validator(path["schema"]).is_valid(default)
+
+
+def test_missing_path_model_error_explains_how_to_supply_it():
+    api = OpenAPI()
+    with pytest.raises(ValueError) as error:
+        api.register_route("/users/{id}", "get")
+    message = str(error.value)
+    assert "'/users/{id}' needs path_type with fields named: id" in message
+    assert "class PathParams(msgspec.Struct): id: int" in message
+    assert "path_type=PathParams" in message
+    assert not api.paths
+
+
+@pytest.mark.parametrize(
+    "path,details",
+    [
+        ("/users/{name}", "missing fields: name; unexpected fields: id"),
+        ("/users/{id}/{name}", "missing fields: name"),
+        ("/users", "unexpected fields: id"),
+    ],
+)
+def test_mismatched_path_model_error_names_the_fields_to_fix(path, details):
+    api = OpenAPI()
+    with pytest.raises(ValueError) as error:
+        api.register_route(path, "get", path_type=PathParameters)
+    assert details in str(error.value)
+    assert "msgspec.field(name=...)" in str(error.value)
+    assert not api.paths
 
 
 @pytest.mark.parametrize(

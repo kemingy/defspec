@@ -73,12 +73,18 @@ def _normalized_path(path: str) -> str:
 
 
 def _parse_path(path: str) -> tuple[str, frozenset[str]]:
-    """Read URL placeholders and check for unmatched braces."""
+    """Read URL placeholders and reject malformed or repeated names."""
     parts = _PATH_TEMPLATE.split(path)
     literals = parts[::2]
     if any("{" in part or "}" in part for part in literals):
         raise ValueError(f"Malformed path template: {path!r}")
-    return "{}".join(literals), frozenset(parts[1::2])
+    names = parts[1::2]
+    placeholders = frozenset(names)
+    if len(names) != len(placeholders):
+        raise ValueError(
+            f"Repeated placeholder in path {path!r}; use a different name for each path parameter."
+        )
+    return "{}".join(literals), placeholders
 
 
 HTTP_METHODS = Literal[
@@ -171,7 +177,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         A user-defined scalar type, such as an Enum or NewType, becomes one parameter
         named after the type.
         Fields with defaults are optional unless the schema requires them. Path fields
-        must match the URL placeholders and are always required. Parameter schemas are
+        must match the URL placeholders and are always required, even with defaults.
+        Generated struct tags are omitted from parameters. Parameter schemas are
         copied so editing a parameter does not change a shared body schema.
 
         Pass type(None) to describe a JSON null body. Passing None means no body.
@@ -192,7 +199,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             deprecated: Mark this endpoint as deprecated.
             schema_hook: Function that describes types msgspec does not recognize.
                 Return a schema dictionary or True for an unconstrained schema.
-            path_type: Model with one field for each URL placeholder.
+            path_type: Model with one field for each URL placeholder. For /users/{id},
+                define 'class PathParams(msgspec.Struct): id: int' and pass PathParams.
             operation_id: Unique name used by API clients. Defaults to the path with
                 slashes replaced by underscores, a stable hash of the original path,
                 and the lowercase method: _users_<hash>_get.
@@ -205,6 +213,12 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             else f"{path.replace('/', '_')}_{sha256(path.encode()).hexdigest()[:16]}_{method}"
         )
         placeholders = self._check_route(path, method, operation_id)
+        if placeholders and path_type is None:
+            raise ValueError(
+                f"Path {path!r} needs path_type with fields named: {', '.join(sorted(placeholders))}. "
+                "Define a model and pass it as path_type. For example, for '/users/{id}', "
+                "define 'class PathParams(msgspec.Struct): id: int' and pass path_type=PathParams."
+            )
         # Stage all changes so a failure cannot overwrite an existing operation
         # or leave unused schema definitions behind.
         components = self.components.schemas.copy()
@@ -241,8 +255,14 @@ class OpenAPI(msgspec.Struct, kw_only=True):
             param.name for param in parameters if param.located_in == "path"
         }
         if placeholders != path_parameters:
+            details = []
+            if missing := placeholders - path_parameters:
+                details.append(f"missing fields: {', '.join(sorted(missing))}")
+            if extra := path_parameters - placeholders:
+                details.append(f"unexpected fields: {', '.join(sorted(extra))}")
             raise ValueError(
-                "path_type fields must exactly match the path placeholders."
+                f"path_type must match the placeholders in {path!r} ({'; '.join(details)}). "
+                "Use matching field names or msgspec.field(name=...) to set their encoded names."
             )
         route = OpenAPIRoute(
             summary=summary or f"{method} from {path.replace('/', ' ')}",
