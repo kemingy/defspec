@@ -180,7 +180,8 @@ class OpenAPI(msgspec.Struct, kw_only=True):
         Fields with defaults are optional unless the schema requires them. Path fields
         must match the URL placeholders and cannot have defaults or default factories,
         because a URL placeholder cannot be missing.
-        TypedDict path keys must be required; use Required[...] for optional keys.
+        TypedDict path keys must be required. Use Required[...] for keys declared
+        in a total=False TypedDict.
         Generated struct tags are omitted from parameters. Parameter schemas are
         copied so editing a parameter does not change a shared body schema.
 
