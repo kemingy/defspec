@@ -54,11 +54,13 @@ max-args = 12
 dev = [
     "attrs>=23.2.0",
     "mypy>=1.16.1",
-    "openapi-spec-validator>=0.7.2,<0.8",
+    "openapi-schema-validator>=0.9,<0.10",
+    "openapi-spec-validator>=0.9,<0.10",
     "prek>=0.1.4",
     "pytest>=7.4.4",
     "ruff>=0.11.11",
     "ty>=0.0.1a19",
+    "types-jsonschema>=4.18",
 ]
 doc = [
     "furo>=2024.8.6",

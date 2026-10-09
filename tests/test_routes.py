@@ -9,9 +9,17 @@ from defspec.spec import HTTP_METHODS
 from tests.helpers import PathParameters, valid_document
 
 
-@pytest.mark.parametrize("method", get_args(HTTP_METHODS))
-def test_bodyless_routes(method):
-    api = OpenAPI()
+@pytest.mark.parametrize(
+    "version,method",
+    [
+        (version, method)
+        for version in ("3.1.0", "3.2.0")
+        for method in get_args(HTTP_METHODS)
+        if method != "query" or version == "3.2.0"
+    ],
+)
+def test_bodyless_routes(method, version):
+    api = OpenAPI(openapi=version)
     api.register_route("/health", method)
     document = valid_document(api)
     assert "$defs" not in document
@@ -21,9 +29,17 @@ def test_bodyless_routes(method):
     assert "security" not in operation
 
 
-@pytest.mark.parametrize("method", get_args(HTTP_METHODS))
-def test_method_case_is_normalized_before_registration(method):
-    api = OpenAPI()
+@pytest.mark.parametrize(
+    "version,method",
+    [
+        (version, method)
+        for version in ("3.1.0", "3.2.0")
+        for method in get_args(HTTP_METHODS)
+        if method != "query" or version == "3.2.0"
+    ],
+)
+def test_method_case_is_normalized_before_registration(method, version):
+    api = OpenAPI(openapi=version)
     api.register_route("/health", method.upper())
     api.register_route("/health", method.capitalize(), summary="Updated")
     routes = valid_document(api)["paths"]["/health"]
@@ -142,16 +158,49 @@ def test_plain_paths_dict_preserves_other_methods_and_route_references():
     valid_document(api)
 
 
-@pytest.mark.parametrize("version", ["3.0.3", "3.2.0", "2.0", "3.1.invalid"])
+@pytest.mark.parametrize(
+    "version", ["3.0.3", "3.3.0", "2.0", "3.1.invalid", "3.2", "3.2.0-rc1"]
+)
 def test_unsupported_versions(version):
     with pytest.raises(ValueError, match="3.1.x"):
         OpenAPI(openapi=version)
 
 
-def test_patch_version_and_registration_after_decode():
-    api = msgspec.json.decode(OpenAPI(openapi="3.1.1").to_json(), type=OpenAPI)
+@pytest.mark.parametrize("version", ["3.1.0", "3.1.1", "3.1.2", "3.2.0", "3.2.1"])
+def test_patch_version_and_registration_after_decode(version):
+    api = msgspec.json.decode(OpenAPI(openapi=version).to_json(), type=OpenAPI)
     api.register_route("/", "get")
-    valid_document(api)
+    assert valid_document(api)["openapi"] == version
+
+
+def test_default_version():
+    assert valid_document(OpenAPI())["openapi"] == "3.2.0"
+
+
+@pytest.mark.parametrize("method", ["query", "QUERY", "Query"])
+def test_query_method_requires_32(method):
+    api = OpenAPI()
+    api.register_route("/search", method, request_type=dict[str, str])
+    assert "query" in valid_document(api)["paths"]["/search"]
+    api = OpenAPI(openapi="3.1.0")
+    api.register_route("/", "get")
+    before = api.to_dict()
+    with pytest.raises(ValueError, match="Unsupported OpenAPI 3.1"):
+        api.register_route("/search", method, request_type=dict[str, str])
+    assert api.to_dict() == before
+
+
+def test_query_and_post_coexist_after_decode():
+    api = OpenAPI()
+    api.register_route("/search", "post", request_type=str)
+    api.register_route("/search", "query", request_type=dict[str, str])
+    document = valid_document(api)
+    assert set(document["paths"]["/search"]) == {"post", "query"}
+    api = msgspec.json.decode(api.to_json(), type=OpenAPI)
+    api.register_route("/search", "QUERY", summary="Updated", request_type=int)
+    updated = valid_document(api)
+    assert updated["paths"]["/search"]["post"] == document["paths"]["/search"]["post"]
+    assert updated["paths"]["/search"]["query"]["summary"] == "Updated"
 
 
 def test_openapi_info():

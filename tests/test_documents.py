@@ -150,8 +150,9 @@ class ResponseAttrs:
         ),
     ]
 )
-def openapi_spec(request):
+def openapi_spec(request, openapi_version):
     openapi = OpenAPI(
+        openapi=openapi_version,
         components=OpenAPIComponent(
             security_schemes={"token": SecuritySchemeHTTP(scheme="bearer")}
         ),
@@ -201,8 +202,8 @@ class Dog(msgspec.Struct, tag=True):
     age: int
 
 
-def test_recursive_shared_and_discriminated_schemas():
-    api = OpenAPI()
+def test_recursive_shared_and_discriminated_schemas(openapi_version):
+    api = OpenAPI(openapi=openapi_version)
     api.register_route("/tree", "post", request_type=Node, response_type=Node)
     api.register_route("/pets", "post", request_type=Cat | Dog, response_type=Cat | Dog)
     api.register_route("/tree-copy", "get", response_type=Node)
@@ -210,7 +211,7 @@ def test_recursive_shared_and_discriminated_schemas():
     assert api.defs is api.components.schemas
 
 
-def test_parameter_document():
+def test_parameter_document(openapi_version):
     class Path(msgspec.Struct):
         item_id: int = msgspec.field(name="id")
 
@@ -224,7 +225,7 @@ def test_parameter_document():
     class Cookies(msgspec.Struct):
         session: str = ""
 
-    api = OpenAPI()
+    api = OpenAPI(openapi=openapi_version)
     api.register_route(
         "/items/{id}",
         "get",
