@@ -118,9 +118,9 @@ and streaming item schemas do not yet have dedicated generation APIs.
 Custom schema hooks follow msgspec's rules: return a schema dictionary or `True`
 for an unconstrained schema. The tests validate generated documents against
 both supported versions with `openapi-spec-validator`, including JSON round
-trips. Validate custom schemas and direct edits before use. Swagger UI and
-ReDoc are pinned to releases that accept OpenAPI 3.2 documents.
-Use Swagger UI or Scalar for `QUERY` operations;
-ReDoc 2.5.3 renders ordinary operations but omits `QUERY`. Offline renderer and
+trips. Validate custom schemas and direct edits before use. Swagger UI,
+ReDoc, and Scalar are pinned to releases that render OpenAPI 3.2 documents,
+including `QUERY` operations. The offline renderer (offapi) pins the same
+versions. Third-party renderer and
 client generator compatibility depends on the upstream version. Select 3.1
 when your consumer requires it.
