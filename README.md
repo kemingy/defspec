@@ -120,9 +120,9 @@ for an unconstrained schema. The tests validate generated documents against
 both supported versions with `openapi-spec-validator`, including JSON round
 trips. Validate custom schemas and direct edits before use. Swagger UI and
 ReDoc are pinned to releases that accept OpenAPI 3.2 documents.
-Use Swagger UI or Scalar for `QUERY` operations;
-ReDoc 3.0.0 accepts OpenAPI 3.2 documents but its `QUERY` rendering is
-unverified. The online template and the offline renderer (offapi) both pin
-ReDoc 3.0.0. Offline renderer and
+Use Swagger UI or Scalar for `QUERY` operations if your consumers pin older
+renderers; the pinned ReDoc 3.0.0 renders OpenAPI 3.2 documents including
+`QUERY` operations. The online template and the offline renderer (offapi)
+both pin ReDoc 3.0.0. Offline renderer and
 client generator compatibility depends on the upstream version. Select 3.1
 when your consumer requires it.
