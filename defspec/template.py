@@ -44,9 +44,6 @@ ReDocTemplate = """
         <meta charset="utf-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%221em%22 font-size=%2280%22>📄</text></svg>">
-        <link href=
-        "https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700"
-        rel="stylesheet">
 
         <!--
         ReDoc doesn't change outer page styles
@@ -60,7 +57,7 @@ ReDocTemplate = """
     </head>
     <body>
         <redoc spec-url='{spec_url}'></redoc>
-        <script src="https://cdn.jsdelivr.net/npm/redoc@2.5.3/bundles/redoc.standalone.js"> </script>
+        <script type="module" src="https://unpkg.com/redoc@3.0.0/bundles/redoc.standalone.js"> </script>
     </body>
 </html>
 """
